@@ -23,7 +23,7 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
 
 2. **Copy and edit the config**
    ```bash
-   cp "config -示例.json" config.json
+   cp config.sample.json config.json
    ```
    - Provide at least one AI provider API key under `api_keys`.
    - Review the `markets.us_stock` block (the only enabled market by default).
@@ -37,7 +37,7 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
 
 ## Configuration Notes
 
-The bundled sample (`config -示例.json`) documents every option inline. Highlights:
+The bundled sample (`config.sample.json`) documents every option inline. Highlights:
 
 | Section | Purpose |
 | --- | --- |
