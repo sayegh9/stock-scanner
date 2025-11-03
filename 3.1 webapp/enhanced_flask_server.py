@@ -1,7 +1,7 @@
 """
-Flask Web服务器 - SSE流式输出版 + 港美股支持
-支持Server-Sent Events实时推送分析进度和结果
-支持市场：A股、港股、美股
+Flask web server for the streaming U.S. stock analysis experience.
+Provides Server-Sent Events (SSE) to stream progress updates and results in real time.
+Configured for U.S. equities by default.
 """
 
 from flask import Flask, request, jsonify, render_template_string, send_from_directory, session, redirect, url_for, Response
@@ -23,37 +23,37 @@ import secrets
 import uuid
 from queue import Queue, Empty
 
-# 导入我们的分析器
+# Import the analyzer
 try:
     from enhanced_web_stock_analyzer import EnhancedWebStockAnalyzer
 except ImportError:
-    print("❌ 无法导入 enhanced_web_stock_analyzer.py")
-    print("请确保 enhanced_web_stock_analyzer.py 文件存在于同一目录下")
+    print("❌ Unable to import enhanced_web_stock_analyzer.py")
+    print("Please ensure enhanced_web_stock_analyzer.py is located in the same directory")
     sys.exit(1)
 
-# 创建Flask应用
+# Create the Flask application
 app = Flask(__name__)
-CORS(app)  # 允许跨域请求
+CORS(app)  # allow cross-origin requests
 
-# 高并发优化配置
+# High-concurrency optimisations
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 app.config['JSON_SORT_KEYS'] = False
 
-# 生成随机的SECRET_KEY
+# Generate a random SECRET_KEY
 app.secret_key = secrets.token_hex(32)
 
-# 全局变量
+# Global state
 analyzer = None
-analysis_tasks = {}  # 存储分析任务状态
-task_results = {}   # 存储任务结果
+analysis_tasks = {}  # stores analysis task status
+task_results = {}   # stores task results
 task_lock = threading.Lock()
-sse_clients = {}    # 存储SSE客户端连接
+sse_clients = {}    # stores SSE client connections
 sse_lock = threading.Lock()
 
-# 线程池用于并发处理
+# Thread pool for concurrent analysis
 executor = ThreadPoolExecutor(max_workers=4)
 
-# 配置日志 - 只输出到命令行
+# Log configuration – console only
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -64,31 +64,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class SSEManager:
-    """SSE连接管理器"""
+    """Manages SSE connections"""
     
     def __init__(self):
         self.clients = {}
         self.lock = threading.Lock()
     
     def add_client(self, client_id, queue):
-        """添加SSE客户端"""
+        """Register a new SSE client"""
         with self.lock:
             self.clients[client_id] = queue
-            logger.info(f"SSE客户端连接: {client_id}")
-    
+            logger.info(f"SSE client connected: {client_id}")
+
     def remove_client(self, client_id):
-        """移除SSE客户端"""
+        """Remove an SSE client"""
         with self.lock:
             if client_id in self.clients:
                 del self.clients[client_id]
-                logger.info(f"SSE客户端断开: {client_id}")
-    
+                logger.info(f"SSE client disconnected: {client_id}")
+
     def send_to_client(self, client_id, event_type, data):
-        """向特定客户端发送消息"""
+        """Send a message to a specific client"""
         with self.lock:
             if client_id in self.clients:
                 try:
-                    # 清理数据确保JSON可序列化
+                    # Clean data to ensure JSON serialisation
                     cleaned_data = clean_data_for_json(data)
                     message = {
                         'event': event_type,
@@ -98,14 +98,14 @@ class SSEManager:
                     self.clients[client_id].put(message, block=False)
                     return True
                 except Exception as e:
-                    logger.error(f"SSE消息发送失败: {e}")
+                    logger.error(f"Failed to send SSE message: {e}")
                     return False
             return False
-    
+
     def broadcast(self, event_type, data):
-        """广播消息给所有客户端"""
+        """Broadcast a message to every client"""
         with self.lock:
-            # 清理数据确保JSON可序列化
+            # Clean data to ensure JSON serialisation
             cleaned_data = clean_data_for_json(data)
             message = {
                 'event': event_type,
@@ -118,9 +118,9 @@ class SSEManager:
                 try:
                     queue.put(message, block=False)
                 except Exception as e:
-                    logger.error(f"SSE广播失败给客户端 {client_id}: {e}")
+                    logger.error(f"SSE broadcast failed for client {client_id}: {e}")
                     dead_clients.append(client_id)
-            
+
             # 清理死连接
             for client_id in dead_clients:
                 del self.clients[client_id]
@@ -129,7 +129,7 @@ class SSEManager:
 sse_manager = SSEManager()
 
 def clean_data_for_json(obj):
-    """清理数据中的NaN、Infinity、日期等无效值，使其能够正确序列化为JSON"""
+    """Clean NaN/Infinity/date values so payloads serialise to JSON correctly"""
     import pandas as pd
     from datetime import datetime, date, time
     
@@ -165,12 +165,12 @@ def clean_data_for_json(obj):
         return None
     elif pd.isna(obj):
         return None
-    elif hasattr(obj, 'to_dict'):  # DataFrame或Series
+    elif hasattr(obj, 'to_dict'):  # DataFrame or Series
         try:
             return clean_data_for_json(obj.to_dict())
         except:
             return str(obj)
-    elif hasattr(obj, 'item'):  # numpy标量
+    elif hasattr(obj, 'item'):  # numpy scalar
         try:
             return clean_data_for_json(obj.item())
         except:
@@ -180,9 +180,9 @@ def clean_data_for_json(obj):
     elif isinstance(obj, (str, bool)):
         return obj
     else:
-        # 对于其他不可序列化的对象，转换为字符串
+        # Convert unsupported types to strings
         try:
-            # 尝试直接序列化测试
+            # Try to serialise directly first
             json.dumps(obj)
             return obj
         except (TypeError, ValueError):
@@ -223,11 +223,11 @@ def require_auth(f):
 
 # 登录页面HTML模板（保持不变）
 LOGIN_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - 全球股票分析系统</title>
+    <title>Login - U.S. Stock Analysis System</title>
     <style>
         * {
             margin: 0;
@@ -366,8 +366,8 @@ LOGIN_TEMPLATE = """<!DOCTYPE html>
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>🌍 系统登录</h1>
-            <p>Enhanced v3.1-Multi-Market 全球股票分析系统</p>
+            <h1>🇺🇸 System Login</h1>
+            <p>Enhanced v3.1 Streaming U.S. Stock Analysis System</p>
         </div>
 
         {% if error %}
@@ -384,21 +384,21 @@ LOGIN_TEMPLATE = """<!DOCTYPE html>
 
         <form method="POST">
             <div class="form-group">
-                <label for="password">访问密码</label>
-                <input type="password" id="password" name="password" 
-                       class="form-control" placeholder="请输入访问密码" required>
+                <label for="password">Access Password</label>
+                <input type="password" id="password" name="password"
+                       class="form-control" placeholder="Enter the access password" required>
             </div>
             
             <button type="submit" class="btn">
-                🚀 登录系统
+                🚀 Sign In
             </button>
         </form>
 
         <div class="login-footer">
-            <p>🔒 系统采用密码鉴权保护</p>
-            <p>🛡️ 会话将在 {{ session_timeout }} 分钟后过期</p>
-            <p>🌍 支持A股/港股/美股分析</p>
-            <p>🌊 支持SSE流式推送</p>
+            <p>🔒 Password authentication is required.</p>
+            <p>🛡️ Sessions expire after {{ session_timeout }} minutes.</p>
+            <p>🇺🇸 Optimised for U.S. equities.</p>
+            <p>🌊 Live SSE streaming updates.</p>
         </div>
     </div>
 
@@ -408,24 +408,24 @@ LOGIN_TEMPLATE = """<!DOCTYPE html>
         document.querySelector('form').addEventListener('submit', function() {
             const btn = document.querySelector('.btn');
             btn.disabled = true;
-            btn.textContent = '🔄 登录中...';
+            btn.textContent = '🔄 Signing in...';
             
             setTimeout(() => {
                 btn.disabled = false;
-                btn.textContent = '🚀 登录系统';
+                btn.textContent = '🚀 Sign In';
             }, 3000);
         });
     </script>
 </body>
 </html>"""
 
-# 主页面HTML模板 - 支持SSE流式输出 + 港美股
+# Main page HTML template - SSE streaming with multi-market support
 MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全球股票分析系统 - Enhanced v3.1-Multi-Market</title>
+    <title>U.S. Stock Analysis System - Enhanced v3.1</title>
     <style>
         * {
             margin: 0;
@@ -473,30 +473,6 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
         .version-info {
             color: #6c757d;
             font-size: 14px;
-        }
-
-        .market-indicators {
-            display: flex;
-            gap: 12px;
-            margin-top: 8px;
-            flex-wrap: wrap;
-        }
-
-        .market-badge {
-            background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
-            color: white;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .market-badge.hk {
-            background: linear-gradient(135deg, #ff9800 0%, #ffcc80 100%);
-        }
-
-        .market-badge.us {
-            background: linear-gradient(135deg, #2196f3 0%, #90caf9 100%);
         }
 
         .header-buttons {
@@ -1073,21 +1049,21 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>🌍 全球股票分析系统 - Multi-Market Edition</h1>
+            <h1>🌍 Global Stock Analysis System - Multi-Market Edition</h1>
             <div class="header-info">
                 <div class="version-info">
-                    Enhanced v3.1-Multi-Market | EnhancedWebStockAnalyzer | A股/港股/美股 {% if auth_enabled %}| 🔐 已认证{% endif %}
-                    <span id="systemStatus" class="status-indicator status-ready">系统就绪</span>
+                    Enhanced v3.1-Multi-Market | EnhancedWebStockAnalyzer | A-Share/Hong Kong/U.S. {% if auth_enabled %}| 🔐 Authenticated{% endif %}
+                    <span id="systemStatus" class="status-indicator status-ready">System Ready</span>
                     <div class="market-indicators" id="marketIndicators">
-                        <div class="market-badge a">A股</div>
-                        <div class="market-badge hk">港股</div>
-                        <div class="market-badge us">美股</div>
+                        <div class="market-badge a">A-Share</div>
+                        <div class="market-badge hk">Hong Kong</div>
+                        <div class="market-badge us">U.S.</div>
                     </div>
                 </div>
                 <div class="header-buttons">
-                    <button class="config-btn" onclick="showConfig()">⚙️ 市场配置</button>
+                    <button class="config-btn" onclick="showConfig()">⚙️ Market Configuration</button>
                     {% if auth_enabled %}
-                    <a href="{{ url_for('logout') }}" class="logout-btn">🚪 退出登录</a>
+                    <a href="{{ url_for('logout') }}" class="logout-btn">🚪 Log Out</a>
                     {% endif %}
                 </div>
             </div>
@@ -1099,27 +1075,27 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
             <div class="left-panel">
                 <!-- Tabs -->
                 <div class="tabs">
-                    <button class="tab active" onclick="switchTab('single')">📈 单只分析</button>
-                    <button class="tab" onclick="switchTab('batch')">📊 批量分析</button>
+                    <button class="tab active" onclick="switchTab('single')">📈 Single Stock Analysis</button>
+                    <button class="tab" onclick="switchTab('batch')">📊 Batch Analysis</button>
                 </div>
 
                 <!-- Single Stock Analysis -->
                 <div id="singleTab" class="tab-content active">
                     <div class="form-group">
-                        <label for="stockCode">股票代码</label>
+                        <label for="stockCode">Stock Code</label>
                         
                         <!-- Market Selector -->
                         <div class="market-selector">
-                            <div class="market-option selected" data-market="auto">🤖 自动识别</div>
-                            <div class="market-option" data-market="a_stock">🇨🇳 A股</div>
-                            <div class="market-option" data-market="hk_stock">🇭🇰 港股</div>
-                            <div class="market-option" data-market="us_stock">🇺🇸 美股</div>
+                            <div class="market-option selected" data-market="auto">🤖 Auto Detect</div>
+                            <div class="market-option" data-market="a_stock">🇨🇳 A-Share</div>
+                            <div class="market-option" data-market="hk_stock">🇭🇰 Hong Kong</div>
+                            <div class="market-option" data-market="us_stock">🇺🇸 U.S.</div>
                         </div>
 
                         <div class="stock-input-group">
                             <input type="text" id="stockCode" class="form-control" 
-                                   placeholder="输入股票代码（如：000001、00700、AAPL）">
-                            <button class="market-detect-btn" onclick="detectMarket()">🔍 检测</button>
+                                   placeholder="Enter a stock code (e.g., 000001, 00700, AAPL)">
+                            <button class="market-detect-btn" onclick="detectMarket()">🔍 Detect</button>
                         </div>
 
                         <div id="marketInfoDisplay" class="market-info-display">
@@ -1130,12 +1106,12 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
                     <div class="form-group">
                         <div class="checkbox-group">
                             <input type="checkbox" id="enableStreaming" checked>
-                            <label for="enableStreaming">启用AI流式推理显示</label>
+                            <label for="enableStreaming">Enable AI streaming output</label>
                         </div>
                     </div>
                     
                     <button id="analyzeBtn" class="btn btn-primary" onclick="analyzeSingleStock()">
-                        🔍 开始全球深度分析
+                        🔍 Start Global Deep Analysis
                     </button>
                     
                     <div id="singleProgress" class="progress-bar">
@@ -1146,13 +1122,13 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
                 <!-- Batch Analysis -->
                 <div id="batchTab" class="tab-content">
                     <div class="form-group">
-                        <label for="stockList">全球股票代码列表</label>
+                        <label for="stockList">Global stock code list</label>
                         <textarea id="stockList" class="form-control textarea" 
-                                  placeholder="输入多个股票代码，每行一个，支持混合市场&#10;例如：&#10;000001（A股）&#10;00700（港股）&#10;AAPL（美股）&#10;600036（A股）&#10;00388（港股）&#10;TSLA（美股）"></textarea>
+                                  placeholder="Enter multiple stock codes, one per line. Mixed markets are supported.&#10;For example:&#10;000001 (A-Share)&#10;00700 (Hong Kong)&#10;AAPL (U.S.)&#10;600036 (A-Share)&#10;00388 (Hong Kong)&#10;TSLA (U.S.)"></textarea>
                     </div>
                     
                     <button id="batchAnalyzeBtn" class="btn btn-success" onclick="analyzeBatchStocks()">
-                        🌍 批量全球深度分析
+                        🌍 Batch Global Deep Analysis
                     </button>
                     
                     <div id="batchProgress" class="progress-bar">
@@ -1165,19 +1141,19 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
                 <!-- Log Container -->
                 <div class="log-container">
                     <div class="log-header">
-                        <h3>📋 分析日志</h3>
+                        <h3>📋 Analysis Log</h3>
                         <div style="display: flex; gap: 8px; align-items: center;">
                             <div class="sse-status">
                                 <div id="sseIndicator" class="sse-indicator"></div>
-                                <span id="sseStatus">SSE断开</span>
+                                <span id="sseStatus">SSE Disconnected</span>
                             </div>
                             <button class="btn btn-secondary" onclick="clearLog()" style="padding: 4px 12px; font-size: 12px;">
-                                🗑️ 清空
+                                🗑️ Clear
                             </button>
                         </div>
                     </div>
                     <div id="logDisplay" class="log-display">
-                        <div class="log-entry log-info">📋 全球股票分析系统就绪，支持A股/港股/美股...</div>
+                        <div class="log-entry log-info">📋 Global stock analysis system ready. Supports A-Share/Hong Kong/U.S. markets...</div>
                     </div>
                 </div>
             </div>
@@ -1185,31 +1161,31 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
             <!-- Right Panel - Results -->
             <div class="right-panel">
                 <div class="results-header">
-                    <h2>📋 分析结果</h2>
+                    <h2>📋 Analysis Results</h2>
                     <button id="exportBtn" class="btn btn-secondary" onclick="exportReport()" style="display: none;">
-                        📤 导出报告
+                        📤 Export Report
                     </button>
                 </div>
 
                 <!-- Score Cards -->
                 <div id="scoreCards" class="score-cards">
                     <div class="score-card" id="comprehensiveCard">
-                        <h4>综合得分</h4>
+                        <h4>Overall Score</h4>
                         <div class="score">--</div>
                         <div class="max-score">/100</div>
                     </div>
                     <div class="score-card" id="technicalCard">
-                        <h4>技术分析</h4>
+                        <h4>Technical Analysis</h4>
                         <div class="score">--</div>
                         <div class="max-score">/100</div>
                     </div>
                     <div class="score-card" id="fundamentalCard">
-                        <h4>基本面</h4>
+                        <h4>Fundamentals</h4>
                         <div class="score">--</div>
                         <div class="max-score">/100</div>
                     </div>
                     <div class="score-card" id="sentimentCard">
-                        <h4>市场情绪</h4>
+                        <h4>Market Sentiment</h4>
                         <div class="score">--</div>
                         <div class="max-score">/100</div>
                     </div>
@@ -1219,30 +1195,30 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
                 <div id="dataQuality" class="data-quality">
                     <div class="quality-indicator">
                         <div id="financialCount" class="value">--</div>
-                        <div class="label">财务指标</div>
+                        <div class="label">Financial Indicators</div>
                     </div>
                     <div class="quality-indicator">
                         <div id="newsCount" class="value">--</div>
-                        <div class="label">新闻数据</div>
+                        <div class="label">News Data</div>
                     </div>
                     <div class="quality-indicator">
                         <div id="completeness" class="value">--</div>
-                        <div class="label">完整度</div>
+                        <div class="label">Completeness</div>
                     </div>
                     <div class="quality-indicator">
                         <div id="marketType" class="value">--</div>
-                        <div class="label">市场类型</div>
+                        <div class="label">Market Type</div>
                     </div>
                 </div>
 
                 <!-- Results Content -->
                 <div id="resultsContent" class="results-content">
                     <div class="empty-state">
-                        <h3>🌍 等待全球分析</h3>
-                        <p>请在左侧输入股票代码并开始分析</p>
+                        <h3>🌍 Awaiting Global Analysis</h3>
+                        <p>Please enter stock codes on the left to begin analysis.</p>
                         <p style="margin-top: 8px; font-size: 12px; color: #9ba2ab;">
-                            💫 支持A股 (6位数字) | 港股 (5位数字) | 美股 (字母代码)<br>
-                            🌊 SSE实时推送 | 🤖 AI深度分析
+                            💫 Supports A-Share (6 digits) | Hong Kong (5 digits) | U.S. (letter codes)<br>
+                            🌊 SSE real-time streaming | 🤖 AI deep analysis
                         </p>
                     </div>
                 </div>
@@ -1250,7 +1226,7 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- 添加marked.js用于markdown解析 -->
+    <!-- Include marked.js for markdown parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
     
     <script>
@@ -1262,25 +1238,25 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
         let selectedMarket = 'auto';
         const API_BASE = '';  // Flask server base URL
         
-        // 市场配置
+        // Market configuration
         const MARKET_CONFIG = {
             'a_stock': {
-                name: 'A股',
+                name: 'A-Share',
                 currency: 'CNY',
                 flag: '🇨🇳',
                 pattern: /^\d{6}$/,
                 example: '000001, 600036, 300019'
             },
             'hk_stock': {
-                name: '港股',
+                name: 'Hong Kong',
                 currency: 'HKD',
                 flag: '🇭🇰',
                 pattern: /^\d{5}$|^HK\d{5}$/i,
                 example: '00700, 00388, 01024'
             },
             'us_stock': {
-                name: '美股',
-                currency: 'USD', 
+                name: 'U.S.',
+                currency: 'USD',
                 flag: '🇺🇸',
                 pattern: /^[A-Z]{1,5}$/,
                 example: 'AAPL, TSLA, GOOGL'
@@ -1353,7 +1329,7 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
         function detectMarket() {
             const stockCode = document.getElementById('stockCode').value.trim();
             if (!stockCode) {
-                addLog('请先输入股票代码', 'warning');
+                addLog('Please enter a stock symbol first', 'warning');
                 return;
             }
             
@@ -1388,12 +1364,12 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
             currentClientId = generateClientId();
             const sseUrl = `${API_BASE}/api/sse?client_id=${currentClientId}`;
             
-            addLog('🌊 正在建立SSE连接...', 'info');
+            addLog('🌊 Establishing SSE connection...', 'info');
             
             sseConnection = new EventSource(sseUrl);
             
             sseConnection.onopen = function(event) {
-                addLog('✅ SSE连接已建立', 'success');
+                addLog('✅ SSE connection established', 'success');
                 updateSSEStatus(true);
             };
             
@@ -1407,20 +1383,20 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
             };
             
             sseConnection.onerror = function(event) {
-                addLog('❌ SSE连接错误', 'error');
+                addLog('❌ SSE connection error', 'error');
                 updateSSEStatus(false);
                 
                 // 自动重连
                 setTimeout(() => {
                     if (!sseConnection || sseConnection.readyState === EventSource.CLOSED) {
-                        addLog('🔄 尝试重新连接SSE...', 'warning');
+                        addLog('🔄 Attempting SSE reconnection...', 'warning');
                         initSSE();
                     }
                 }, 3000);
             };
             
             sseConnection.onclose = function(event) {
-                addLog('🔌 SSE连接已关闭', 'warning');
+                addLog('🔌 SSE connection closed', 'warning');
                 updateSSEStatus(false);
             };
         }
@@ -1909,7 +1885,7 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
 
         function displayBatchResults(reports) {
             if (!reports || reports.length === 0) {
-                addLog('批量分析结果为空', 'warning');
+            addLog('Batch analysis returned no results', 'warning');
                 return;
             }
 
@@ -2011,7 +1987,7 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
             showProgress('batchProgress', false);
             document.getElementById('currentStock').style.display = 'none';
             
-            addLog('✅ 全球分析完成', 'success');
+            addLog('✅ U.S. analysis complete', 'success');
         }
 
         function onAnalysisError(data) {
@@ -2038,12 +2014,12 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
         async function analyzeSingleStock() {
             const stockCode = document.getElementById('stockCode').value.trim();
             if (!stockCode) {
-                addLog('请输入股票代码', 'warning');
+        addLog('Please enter a stock symbol', 'warning');
                 return;
             }
 
             if (isAnalyzing) {
-                addLog('分析正在进行中，请稍候', 'warning');
+            addLog('Analysis already in progress—please wait', 'warning');
                 return;
             }
 
@@ -2052,7 +2028,7 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
             if (selectedMarket === 'auto') {
                 targetMarket = detectStockMarket(stockCode);
                 if (!targetMarket) {
-                    addLog('❌ 无法识别股票代码格式，请手动选择市场', 'error');
+            addLog('❌ Unable to detect the market from the ticker format—please select manually', 'error');
                     return;
                 }
                 addLog(`🤖 自动识别为 ${MARKET_CONFIG[targetMarket].name} 市场`, 'info');
@@ -2099,18 +2075,18 @@ MAIN_TEMPLATE_MULTI_MARKET = r"""<!DOCTYPE html>
         async function analyzeBatchStocks() {
             const stockListText = document.getElementById('stockList').value.trim();
             if (!stockListText) {
-                addLog('请输入股票代码列表', 'warning');
+        addLog('Please provide a list of stock symbols', 'warning');
                 return;
             }
 
             if (isAnalyzing) {
-                addLog('分析正在进行中，请稍候', 'warning');
+                addLog('Analysis already in progress—please wait', 'warning');
                 return;
             }
 
             const stockList = stockListText.split('\n').map(s => s.trim()).filter(s => s);
             if (stockList.length === 0) {
-                addLog('股票代码列表为空', 'warning');
+            addLog('The stock symbol list is empty', 'warning');
                 return;
             }
 
@@ -2438,22 +2414,22 @@ ${aiAnalysis}
         }
 
         function getScoreRating(score) {
-            if (score >= 80) return '优秀';
-            if (score >= 60) return '良好';
-            if (score >= 40) return '一般';
-            return '较差';
+            if (score >= 80) return 'Excellent';
+            if (score >= 60) return 'Good';
+            if (score >= 40) return 'Average';
+            return 'Weak';
         }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            addLog('🌍 全球股票分析系统已启动 (Multi-Market Edition)', 'success');
-            addLog('📋 Enhanced v3.1-Multi-Market | EnhancedWebStockAnalyzer', 'info');
-            addLog('🌊 SSE流式推送：实时进度显示', 'info');
-            addLog('🔥 高并发优化：线程池 + 异步处理 + 任务队列', 'info');
-            addLog('🤖 AI分析：支持OpenAI/Claude/智谱AI智能切换', 'info');
-            addLog('🌍 全球市场：A股/港股/美股全覆盖', 'info');
-            addLog('🔐 安全特性：密码鉴权 + 会话管理', 'info');
-            addLog('💡 股票代码示例：000001(A股), 00700(港股), AAPL(美股)', 'info');
+            addLog('🇺🇸 U.S. stock analysis system ready', 'success');
+            addLog('📋 Enhanced v3.1 | EnhancedWebStockAnalyzer', 'info');
+            addLog('🌊 SSE streaming enabled for live progress', 'info');
+            addLog('🔥 High-concurrency pipeline: thread pool + async tasks', 'info');
+            addLog('🤖 AI analysis: OpenAI/Claude/Zhipu switching supported', 'info');
+            addLog('🇺🇸 Market focus: U.S. equities coverage', 'info');
+            addLog('🔐 Security: password authentication + session management', 'info');
+            addLog('💡 Ticker examples: AAPL, TSLA, MSFT', 'info');
             
             // 初始化SSE连接
             initSSE();
@@ -2463,14 +2439,14 @@ ${aiAnalysis}
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        addLog('✅ 后端服务器连接成功', 'success');
-                        addLog(`🔧 系统状态：${data.data.active_tasks} 个活跃任务`, 'info');
-                        addLog(`🧵 线程池：${data.data.max_workers} 个工作线程`, 'info');
+                        addLog('✅ Backend connection successful', 'success');
+                        addLog(`🔧 Active tasks: ${data.data.active_tasks}`, 'info');
+                        addLog(`🧵 Worker threads: ${data.data.max_workers}`, 'info');
                         
                         // 显示支持的市场
                         if (data.data.supported_markets && data.data.supported_markets.length > 0) {
                             const markets = data.data.supported_markets.map(m => m.name).join(', ');
-                            addLog(`🌍 支持市场: ${markets}`, 'success');
+                            addLog(`🇺🇸 Supported market configuration: ${markets}`, 'success');
                         }
                         
                         if (data.data.api_configured) {
@@ -2478,8 +2454,8 @@ ${aiAnalysis}
                             const versions = data.data.api_versions || {};
                             const primary = data.data.primary_api || 'openai';
                             
-                            addLog(`🤖 AI API已配置: ${apis.join(', ')}`, 'success');
-                            addLog(`🎯 主要API: ${primary}`, 'info');
+                            addLog(`🤖 AI APIs configured: ${apis.join(', ')}`, 'success');
+                            addLog(`🎯 Primary API: ${primary}`, 'info');
                             
                             apis.forEach(api => {
                                 const version = versions[api] || '';
@@ -2488,15 +2464,15 @@ ${aiAnalysis}
                                 }
                             });
                             
-                            addLog('🚀 支持完整AI全球深度分析', 'success');
+                            addLog('🚀 Full AI-driven deep analysis available', 'success');
                         } else {
-                            addLog('⚠️ 未配置AI API，将使用高级规则分析', 'warning');
-                            addLog('💡 配置AI API密钥以获得最佳全球分析体验', 'info');
+                            addLog('⚠️ No AI API configured—falling back to rule-based analysis', 'warning');
+                            addLog('💡 Add AI API keys for the best U.S. equity experience', 'info');
                         }
                     }
                 })
                 .catch(error => {
-                    addLog('❌ 后端服务器连接失败，请检查服务器状态', 'error');
+                    addLog('❌ Backend connection failed—please check the server', 'error');
                 });
         });
 
@@ -2980,7 +2956,7 @@ def analyze_stock_stream():
         if not analyzer:
             return jsonify({
                 'success': False,
-                'error': '分析器未初始化'
+                'error': 'Analyzer not initialised'
             }), 500
         
         data = request.json
@@ -2992,13 +2968,13 @@ def analyze_stock_stream():
         if not stock_code:
             return jsonify({
                 'success': False,
-                'error': '股票代码不能为空'
+                'error': 'Stock symbol cannot be empty'
             }), 400
         
         if not client_id:
             return jsonify({
                 'success': False,
-                'error': '缺少客户端ID'
+                'error': 'Missing client ID'
             }), 400
         
         # 验证股票代码格式
@@ -3064,7 +3040,7 @@ def batch_analyze_stream():
         if not analyzer:
             return jsonify({
                 'success': False,
-                'error': '分析器未初始化'
+                'error': 'Analyzer not initialised'
             }), 500
         
         data = request.json
@@ -3074,20 +3050,20 @@ def batch_analyze_stream():
         if not stock_codes:
             return jsonify({
                 'success': False,
-                'error': '股票代码列表不能为空'
+                'error': 'Stock symbol list cannot be empty'
             }), 400
         
         if not client_id:
             return jsonify({
                 'success': False,
-                'error': '缺少客户端ID'
+                'error': 'Missing client ID'
             }), 400
         
         # 限制批量分析数量
         if len(stock_codes) > 10:
             return jsonify({
                 'success': False,
-                'error': '批量分析最多支持10只股票'
+                'error': 'Batch analysis supports up to 10 symbols'
             }), 400
         
         # 验证所有股票代码
@@ -3125,7 +3101,7 @@ def batch_analyze_stream():
         
         return jsonify({
             'success': True,
-            'message': f'全球批量分析已启动，共 {len(stock_codes)} 只股票',
+            'message': f'U.S. batch analysis started for {len(stock_codes)} symbols',
             'client_id': client_id,
             'market_distribution': market_distribution
         })
@@ -3147,12 +3123,12 @@ def status():
         return jsonify({
             'success': True,
             'status': 'ready',
-            'message': '全球股票分析系统运行正常 (Multi-Market Edition)',
+            'message': 'U.S. stock analysis system is running',
             'analyzer_available': analyzer is not None,
             'auth_enabled': auth_enabled,
             'sse_support': True,
             'supported_markets': supported_markets,
-            'version': 'Enhanced v3.1-Multi-Market',
+            'version': 'Enhanced v3.1 (U.S.)',
             'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
@@ -3169,7 +3145,7 @@ def analyze_stock():
         if not analyzer:
             return jsonify({
                 'success': False,
-                'error': '分析器未初始化'
+                'error': 'Analyzer not initialised'
             }), 500
         
         data = request.json
@@ -3179,7 +3155,7 @@ def analyze_stock():
         if not stock_code:
             return jsonify({
                 'success': False,
-                'error': '股票代码不能为空'
+                'error': 'Stock symbol cannot be empty'
             }), 400
         
         # 验证股票代码格式
@@ -3242,7 +3218,7 @@ def batch_analyze():
         if not analyzer:
             return jsonify({
                 'success': False,
-                'error': '分析器未初始化'
+                'error': 'Analyzer not initialised'
             }), 500
         
         data = request.json
@@ -3251,13 +3227,13 @@ def batch_analyze():
         if not stock_codes:
             return jsonify({
                 'success': False,
-                'error': '股票代码列表不能为空'
+                'error': 'Stock symbol list cannot be empty'
             }), 400
         
         if len(stock_codes) > 10:
             return jsonify({
                 'success': False,
-                'error': '批量分析最多支持10只股票'
+                'error': 'Batch analysis supports up to 10 symbols'
             }), 400
         
         # 验证所有股票代码
@@ -3496,14 +3472,14 @@ def validate_stock():
 def not_found(error):
     return jsonify({
         'success': False,
-        'error': '接口不存在'
+        'error': 'Endpoint not found'
     }), 404
 
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({
         'success': False,
-        'error': '服务器内部错误'
+        'error': 'Internal server error'
     }), 500
 
 def main():

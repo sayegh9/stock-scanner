@@ -85,8 +85,8 @@ class EnhancedWebStockAnalyzer:
         # 市场配置
         markets = self.config.get('markets', {})
         self.market_config = {
-            'a_stock': markets.get('a_stock', {'enabled': True, 'currency': 'CNY', 'timezone': 'Asia/Shanghai'}),
-            'hk_stock': markets.get('hk_stock', {'enabled': True, 'currency': 'HKD', 'timezone': 'Asia/Hong_Kong'}),
+            'a_stock': markets.get('a_stock', {'enabled': False, 'currency': 'CNY', 'timezone': 'Asia/Shanghai'}),
+            'hk_stock': markets.get('hk_stock', {'enabled': False, 'currency': 'HKD', 'timezone': 'Asia/Hong_Kong'}),
             'us_stock': markets.get('us_stock', {'enabled': True, 'currency': 'USD', 'timezone': 'America/New_York'})
         }
         
@@ -280,10 +280,10 @@ class EnhancedWebStockAnalyzer:
         elif re.match(r'^[A-Z]{1,5}$', stock_code):
             return 'us_stock'
         
-        # 默认返回A股
+        # 默认返回美股
         else:
-            self.logger.warning(f"⚠️ 无法识别股票代码格式: {stock_code}，默认为A股")
-            return 'a_stock'
+            self.logger.warning(f"⚠️ 无法识别股票代码格式: {stock_code}，默认为美股")
+            return 'us_stock'
 
     def normalize_stock_code(self, stock_code, market=None):
         """标准化股票代码"""
