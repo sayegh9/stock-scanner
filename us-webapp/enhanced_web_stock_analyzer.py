@@ -321,6 +321,7 @@ class EnhancedWebStockAnalyzer:
 
         data: Optional[pd.DataFrame] = None
         source = ""
+        rate_limited = False
 
         if yf is not None:
             try:  # pragma: no cover - network dependent
@@ -348,12 +349,19 @@ class EnhancedWebStockAnalyzer:
                     data = raw[["date", "open", "high", "low", "close", "volume"]].dropna()
                     source = "yfinance"
             except Exception as exc:  # pragma: no cover - network dependent
-                logger.warning("yfinance price download failed for %s: %s", stock_code, exc)
+                message = str(exc)
+                rate_limited = "rate" in message.lower() and "limit" in message.lower()
+                if exc.__class__.__name__ == "YFRateLimitError":
+                    rate_limited = True
+                level = logger.warning
+                if rate_limited:
+                    level = logger.error
+                level("yfinance price download failed for %s: %s", stock_code, exc)
 
         if (data is None or data.empty) and ak is not None:
             try:  # pragma: no cover - network dependent
                 raw = ak.stock_us_hist(symbol=stock_code, period="daily", adjust="qfq")
-                if not raw.empty:
+                if raw is not None and not raw.empty:
                     raw = raw.rename(columns=AK_PRICE_COLUMNS)
                     raw["date"] = pd.to_datetime(raw["date"])
                     raw = raw.sort_values("date")
@@ -363,8 +371,15 @@ class EnhancedWebStockAnalyzer:
                 logger.error("Failed to pull price history for %s via akshare: %s", stock_code, exc)
 
         if data is None or data.empty:
+            hint = []
+            if rate_limited:
+                hint.append("Yahoo Finance is rate limiting your IP. Wait a few minutes or reduce request frequency.")
+            if ak is None:
+                hint.append("Install akshare for an additional data source (pip install akshare).")
+            if not hint:
+                hint.append("Check your internet connection or verify the ticker symbol is valid.")
             raise RuntimeError(
-                "Unable to download price history. Install yfinance or akshare and check your network connectivity."
+                "Unable to download price history. " + " ".join(hint)
             )
 
         data = data[data["date"] >= start]
