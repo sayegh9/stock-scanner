@@ -321,7 +321,9 @@ function setStatus(text) {
 }
 
 function updateScores(scores) {
-    const format = (value) => value !== undefined ? value.toFixed(1) : '--';
+    const format = (value) => (value !== undefined && value !== null)
+        ? Number(value).toFixed(1)
+        : '--';
     document.getElementById('technicalScore').textContent = format(scores.technical || 0);
     document.getElementById('fundamentalScore').textContent = format(scores.fundamental || 0);
     document.getElementById('sentimentScore').textContent = format(scores.sentiment || 0);
@@ -362,6 +364,46 @@ function resetDashboard() {
     resetAI();
     currentReport = null;
     setStatus('Ready');
+}
+
+function sendJsonRequest(url, payload) {
+    const body = JSON.stringify(payload);
+    if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+        return window.fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body
+        }).then((response) => {
+            return response
+                .json()
+                .catch(() => ({}))
+                .then((data) => ({ ok: response.ok, status: response.status, data }));
+        });
+    }
+
+    return new Promise((resolve, reject) => {
+        try {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = () => {
+                if (xhr.readyState === 4) {
+                    let data = {};
+                    try {
+                        data = JSON.parse(xhr.responseText || '{}');
+                    } catch (error) {
+                        data = {};
+                    }
+                    const ok = xhr.status >= 200 && xhr.status < 300;
+                    resolve({ ok, status: xhr.status, data });
+                }
+            };
+            xhr.onerror = () => reject(new Error('Network request failed'));
+            xhr.send(body);
+        } catch (error) {
+            reject(error);
+        }
+    });
 }
 
 function connectSSE() {
@@ -429,7 +471,7 @@ function connectSSE() {
     return true;
 }
 
-async function startSingleAnalysis(event) {
+function startSingleAnalysis(event) {
     if (event) {
         event.preventDefault();
     }
@@ -442,29 +484,31 @@ async function startSingleAnalysis(event) {
     setStatus(`Streaming analysis for ${symbol}…`);
     addLog(`Submitting ${symbol} to the analyzer.`);
 
-    try {
-        const response = await fetch('/api/analyze_stream', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stock_code: symbol, client_id: clientId, target_market: DEFAULT_MARKET, enable_streaming: true })
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.success) {
-            addLog(data.error || `Request failed (${response.status})`, 'error');
+    sendJsonRequest('/api/analyze_stream', {
+        stock_code: symbol,
+        client_id: clientId,
+        target_market: DEFAULT_MARKET,
+        enable_streaming: true
+    }).then((result) => {
+        const { ok, status, data } = result;
+        if (!ok || !data.success) {
+            addLog((data && data.error) || `Request failed (${status})`, 'error');
             setStatus('Error');
         }
-    } catch (error) {
+    }).catch((error) => {
         addLog(`Network error: ${error}`, 'error');
         setStatus('Error');
-    }
+    });
 }
 
-async function startBatchAnalysis(event) {
+function startBatchAnalysis(event) {
     if (event) {
         event.preventDefault();
     }
-    const entries = document.getElementById('batchSymbols').value.split(',').map(v => v.trim().toUpperCase()).filter(Boolean);
+    const entries = document.getElementById('batchSymbols').value
+        .split(',')
+        .map((value) => value.trim().toUpperCase())
+        .filter(Boolean);
     if (!entries.length) {
         addLog('Please provide at least one ticker.', 'warning');
         return;
@@ -477,21 +521,20 @@ async function startBatchAnalysis(event) {
     setStatus(`Running batch analysis for ${entries.length} tickers…`);
     addLog(`Submitting batch: ${entries.join(', ')}`);
 
-    try {
-        const response = await fetch('/api/batch_analyze_stream', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stock_codes: entries, client_id: clientId, enable_streaming: true })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.success) {
-            addLog(data.error || `Batch request failed (${response.status})`, 'error');
+    sendJsonRequest('/api/batch_analyze_stream', {
+        stock_codes: entries,
+        client_id: clientId,
+        enable_streaming: true
+    }).then((result) => {
+        const { ok, status, data } = result;
+        if (!ok || !data.success) {
+            addLog((data && data.error) || `Batch request failed (${status})`, 'error');
             setStatus('Error');
         }
-    } catch (error) {
+    }).catch((error) => {
         addLog(`Network error: ${error}`, 'error');
         setStatus('Error');
-    }
+    });
 }
 
 function bindControls() {
