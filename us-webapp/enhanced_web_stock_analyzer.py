@@ -19,7 +19,7 @@ import json
 import logging
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -198,7 +198,7 @@ class EnhancedWebStockAnalyzer:
         """Emit a short configuration summary to the console."""
 
         enabled_markets = [
-            MarketInfo(code=key, **value)
+            self._build_market_info(key, value)
             for key, value in self.market_config.items()
             if value.get("enabled", False)
         ]
@@ -208,6 +208,28 @@ class EnhancedWebStockAnalyzer:
             self.streaming_config.get("enabled", True),
             self.streaming_config.get("delay", 0.0),
         )
+
+    def _build_market_info(self, code: str, value: Dict[str, str]) -> MarketInfo:
+        """Safely instantiate :class:`MarketInfo` from configuration data."""
+
+        market_fields = {field.name for field in fields(MarketInfo)}
+        kwargs = {}
+
+        for field_name in market_fields:
+            if field_name == "code":
+                kwargs[field_name] = code
+            elif field_name in value:
+                kwargs[field_name] = value[field_name]
+
+        market = MarketInfo(**kwargs)
+
+        # ``enabled`` was introduced after the initial release. If the dataclass
+        # in a user's working copy predates that change, ensure the attribute is
+        # still exposed so downstream code can rely on it.
+        if "enabled" not in market_fields:
+            setattr(market, "enabled", value.get("enabled", True))
+
+        return market
 
     # ------------------------------------------------------------------
     # Market helpers
