@@ -27,6 +27,11 @@ import numpy as np
 import pandas as pd
 
 try:  # pragma: no cover - optional dependency
+    import yfinance as yf
+except ImportError:  # pragma: no cover - optional dependency
+    yf = None
+
+try:  # pragma: no cover - optional dependency
     import akshare as ak
 except ImportError:  # pragma: no cover - optional dependency
     ak = None
@@ -310,30 +315,61 @@ class EnhancedWebStockAnalyzer:
         if cache_entry and datetime.now() - cache_entry[0] < timedelta(hours=expiry_hours):
             return cache_entry[1].copy()
 
-        if ak is None:
+        period_days = days or self.analysis_params.get("technical_period_days", 180)
+        end = datetime.utcnow()
+        start = end - timedelta(days=period_days + 10)
+
+        data: Optional[pd.DataFrame] = None
+        source = ""
+
+        if yf is not None:
+            try:  # pragma: no cover - network dependent
+                raw = yf.download(
+                    tickers=stock_code,
+                    start=start.strftime("%Y-%m-%d"),
+                    end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    interval="1d",
+                    auto_adjust=False,
+                    progress=False,
+                )
+                if not raw.empty:
+                    raw = raw.rename(
+                        columns={
+                            "Open": "open",
+                            "High": "high",
+                            "Low": "low",
+                            "Close": "close",
+                            "Adj Close": "adj_close",
+                            "Volume": "volume",
+                        }
+                    )
+                    raw.index = pd.to_datetime(raw.index, utc=True).tz_convert(None)
+                    raw = raw.reset_index().rename(columns={"index": "date", "Date": "date"})
+                    data = raw[["date", "open", "high", "low", "close", "volume"]].dropna()
+                    source = "yfinance"
+            except Exception as exc:  # pragma: no cover - network dependent
+                logger.warning("yfinance price download failed for %s: %s", stock_code, exc)
+
+        if (data is None or data.empty) and ak is not None:
+            try:  # pragma: no cover - network dependent
+                raw = ak.stock_us_hist(symbol=stock_code, period="daily", adjust="qfq")
+                if not raw.empty:
+                    raw = raw.rename(columns=AK_PRICE_COLUMNS)
+                    raw["date"] = pd.to_datetime(raw["date"])
+                    raw = raw.sort_values("date")
+                    data = raw[["date", "open", "high", "low", "close", "volume"]].dropna()
+                    source = "akshare"
+            except Exception as exc:
+                logger.error("Failed to pull price history for %s via akshare: %s", stock_code, exc)
+
+        if data is None or data.empty:
             raise RuntimeError(
-                "akshare is not installed. Install it or extend `get_stock_data` with a different provider."
+                "Unable to download price history. Install yfinance or akshare and check your network connectivity."
             )
 
-        period_days = days or self.analysis_params.get("technical_period_days", 180)
-        start_date = (datetime.now() - timedelta(days=period_days + 10)).strftime("%Y-%m-%d")
-        try:
-            data = ak.stock_us_hist(symbol=stock_code, period="daily", adjust="qfq")
-        except Exception as exc:  # pragma: no cover - network dependent
-            logger.error("Failed to pull price history for %s: %s", stock_code, exc)
-            raise
+        data = data[data["date"] >= start]
 
-        if data.empty:
-            raise ValueError(f"No price data returned for {stock_code}")
-
-        data = data.rename(columns=AK_PRICE_COLUMNS)
-        data["date"] = pd.to_datetime(data["date"])
-        data = data.sort_values("date")
-        if period_days:
-            data = data[data["date"] >= datetime.now() - timedelta(days=period_days)]
-
-        data = data[["date", "open", "high", "low", "close", "volume"]]
-        data = data.dropna()
+        logger.info("Loaded %s price rows for %s from %s", len(data), stock_code, source or "unknown")
 
         self._price_cache[cache_key] = (datetime.now(), data.copy())
         return data
@@ -420,7 +456,39 @@ class EnhancedWebStockAnalyzer:
 
         fundamentals: Dict[str, float] = {}
 
-        if ak is not None:
+        source_name = ""
+
+        if yf is not None:
+            try:  # pragma: no cover - network dependent
+                ticker = yf.Ticker(stock_code)
+                info = ticker.get_info()
+                mapping = {
+                    "trailingPE": "pe_ratio",
+                    "forwardPE": "forward_pe",
+                    "trailingEps": "eps",
+                    "forwardEps": "forward_eps",
+                    "returnOnEquity": "roe",
+                    "revenueGrowth": "revenue_growth",
+                    "earningsGrowth": "net_profit_growth",
+                    "earningsQuarterlyGrowth": "net_profit_growth_quarterly",
+                }
+                for source_key, target_key in mapping.items():
+                    value = info.get(source_key)
+                    if value is None:
+                        continue
+                    try:
+                        value = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if source_key in {"returnOnEquity", "revenueGrowth", "earningsGrowth", "earningsQuarterlyGrowth"}:
+                        value *= 100.0
+                    fundamentals[target_key] = value
+                if fundamentals:
+                    source_name = "yfinance"
+            except Exception as exc:
+                logger.warning("Unable to fetch yfinance fundamentals for %s: %s", stock_code, exc)
+
+        if not fundamentals and ak is not None:
             try:  # pragma: no cover - network dependent
                 info = ak.stock_us_fundamental(stock=stock_code)
                 if not info.empty:
@@ -428,13 +496,15 @@ class EnhancedWebStockAnalyzer:
                     for source_key, target_key in AK_FUNDAMENTAL_KEYS.items():
                         if source_key in info.index:
                             fundamentals[target_key] = float(info.loc[source_key, "value"])
+                    if fundamentals and not source_name:
+                        source_name = "akshare"
             except Exception as exc:
-                logger.warning("Unable to fetch fundamentals for %s: %s", stock_code, exc)
+                logger.warning("Unable to fetch fundamentals for %s via akshare: %s", stock_code, exc)
 
         data = {
             "financial_indicators": fundamentals,
             "metadata": {
-                "source": "akshare" if fundamentals else "placeholder",
+                "source": source_name or "placeholder",
                 "retrieved_at": datetime.now().isoformat(),
             },
         }
