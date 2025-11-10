@@ -322,6 +322,7 @@ class EnhancedWebStockAnalyzer:
         data: Optional[pd.DataFrame] = None
         source = ""
         rate_limited = False
+        stooq_attempted = False
 
         if yf is not None:
             try:  # pragma: no cover - network dependent
@@ -358,6 +359,32 @@ class EnhancedWebStockAnalyzer:
                     level = logger.error
                 level("yfinance price download failed for %s: %s", stock_code, exc)
 
+        if (data is None or data.empty):
+            stooq_attempted = True
+            stooq_symbol = stock_code.lower()
+            if "." not in stooq_symbol:
+                stooq_symbol = f"{stooq_symbol}.us"
+            stooq_url = f"https://stooq.com/q/d/l/?s={stooq_symbol}&i=d"
+            try:  # pragma: no cover - network dependent
+                raw = pd.read_csv(stooq_url)
+                if not raw.empty and {"Date", "Open", "High", "Low", "Close", "Volume"}.issubset(raw.columns):
+                    raw = raw.rename(
+                        columns={
+                            "Date": "date",
+                            "Open": "open",
+                            "High": "high",
+                            "Low": "low",
+                            "Close": "close",
+                            "Volume": "volume",
+                        }
+                    )
+                    raw["date"] = pd.to_datetime(raw["date"])
+                    raw = raw.sort_values("date")
+                    data = raw[["date", "open", "high", "low", "close", "volume"]].dropna()
+                    source = "stooq"
+            except Exception as exc:
+                logger.warning("Failed to download price history for %s via stooq: %s", stock_code, exc)
+
         if (data is None or data.empty) and ak is not None:
             try:  # pragma: no cover - network dependent
                 raw = ak.stock_us_hist(symbol=stock_code, period="daily", adjust="qfq")
@@ -376,6 +403,8 @@ class EnhancedWebStockAnalyzer:
                 hint.append("Yahoo Finance is rate limiting your IP. Wait a few minutes or reduce request frequency.")
             if ak is None:
                 hint.append("Install akshare for an additional data source (pip install akshare).")
+            if stooq_attempted and source != "stooq":
+                hint.append("Stooq returned no data. Confirm the ticker trades in the U.S. market or try again later.")
             if not hint:
                 hint.append("Check your internet connection or verify the ticker symbol is valid.")
             raise RuntimeError(
