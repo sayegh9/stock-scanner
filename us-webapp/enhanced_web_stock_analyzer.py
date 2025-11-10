@@ -228,6 +228,11 @@ class EnhancedWebStockAnalyzer:
             elif field_name in value:
                 kwargs[field_name] = value[field_name]
 
+        # Ensure we expose a readable market name even when the configuration
+        # only toggles the ``enabled`` flag. Falling back to the code prevents
+        # empty labels such as "Markets enabled: None" during startup logs.
+        kwargs.setdefault("name", code)
+
         market = MarketInfo(**kwargs)
 
         # ``enabled`` was introduced after the initial release. If the dataclass
