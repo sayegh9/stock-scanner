@@ -62,6 +62,7 @@ class MarketInfo:
     currency: str
     timezone: str
     trading_hours: str
+    enabled: bool = True
 
 
 class EnhancedWebStockAnalyzer:
