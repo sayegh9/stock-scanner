@@ -55,13 +55,20 @@ AK_FUNDAMENTAL_KEYS = {
 
 @dataclass
 class MarketInfo:
-    """Description for a supported market."""
+    """Description for a supported market.
+
+    ``name`` and the other descriptive attributes default to empty strings so the
+    analyzer can tolerate minimal configuration files that only toggle the
+    ``enabled`` flag without providing human-readable metadata. This mirrors the
+    behaviour of the legacy multi-market project where those fields were
+    optional.
+    """
 
     code: str
-    name: str
-    currency: str
-    timezone: str
-    trading_hours: str
+    name: str = ""
+    currency: str = ""
+    timezone: str = ""
+    trading_hours: str = ""
     enabled: bool = True
 
 
