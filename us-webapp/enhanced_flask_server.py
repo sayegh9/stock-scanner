@@ -300,7 +300,12 @@ let eventSource = null;
 let currentReport = null;
 let lastHeartbeat = Date.now();
 
-document.getElementById('sessionId').textContent = clientId;
+function setSessionId() {
+    const sessionTarget = document.getElementById('sessionId');
+    if (sessionTarget) {
+        sessionTarget.textContent = clientId;
+    }
+}
 
 function addLog(message, level = 'info') {
     const logPanel = document.getElementById('logStream');
@@ -360,11 +365,19 @@ function resetDashboard() {
 }
 
 function connectSSE() {
-    if (eventSource) {
-        eventSource.close();
+    if (typeof EventSource === 'undefined') {
+        return false;
     }
-    const url = `/api/sse?client_id=${clientId}`;
-    eventSource = new EventSource(url);
+    try {
+        if (eventSource) {
+            eventSource.close();
+        }
+        const url = `/api/sse?client_id=${clientId}`;
+        eventSource = new EventSource(url);
+    } catch (error) {
+        addLog(`Unable to initialise streaming channel: ${error}`, 'error');
+        return false;
+    }
     eventSource.onmessage = (event) => {
         lastHeartbeat = Date.now();
         const payload = JSON.parse(event.data);
@@ -413,6 +426,7 @@ function connectSSE() {
         setStatus('Connection lost. Reconnecting…');
         setTimeout(connectSSE, 2000);
     };
+    return true;
 }
 
 async function startSingleAnalysis(event) {
@@ -480,11 +494,30 @@ async function startBatchAnalysis(event) {
     }
 }
 
+function bindControls() {
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if (analyzeBtn) {
+        analyzeBtn.addEventListener('click', startSingleAnalysis);
+    }
+    const batchBtn = document.getElementById('batchBtn');
+    if (batchBtn) {
+        batchBtn.addEventListener('click', startBatchAnalysis);
+    }
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetDashboard);
+    }
+}
+
 function initialiseDashboard() {
-    connectSSE();
-    document.getElementById('analyzeBtn').addEventListener('click', startSingleAnalysis);
-    document.getElementById('batchBtn').addEventListener('click', startBatchAnalysis);
-    document.getElementById('resetBtn').addEventListener('click', resetDashboard);
+    bindControls();
+    setSessionId();
+    const streamingActive = connectSSE();
+    if (!streamingActive) {
+        addLog('Live streaming is unavailable in this browser. Requests will still run, but updates will appear after completion.', 'warning');
+        setStatus('Streaming unavailable');
+        return;
+    }
     setInterval(() => {
         if (Date.now() - lastHeartbeat > 60000) {
             addLog('No heartbeat from server. Reconnecting…', 'warning');
