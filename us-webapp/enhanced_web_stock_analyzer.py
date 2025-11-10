@@ -15,6 +15,7 @@ provider.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import math
@@ -652,6 +653,355 @@ class EnhancedWebStockAnalyzer:
             return "Reduce"
         return "Avoid"
 
+    def _build_ai_analysis_prompt(self, analysis_context: Dict) -> str:
+        """Compose an instruction prompt for the configured LLM."""
+
+        stock_code = analysis_context.get("stock_code", "")
+        stock_name = analysis_context.get("stock_name", stock_code or "the company")
+        price_info = analysis_context.get("price_info", {})
+        technicals = analysis_context.get("technical_analysis", {})
+        fundamentals = analysis_context.get("fundamental_data", {}).get(
+            "financial_indicators", {}
+        )
+        sentiment = analysis_context.get("sentiment_analysis", {})
+        scores = analysis_context.get("scores", {})
+        recommendation = analysis_context.get("recommendation", "Unknown")
+        analysis_date = analysis_context.get("analysis_date")
+
+        def _format_dict(title: str, values: Dict) -> str:
+            if not values:
+                return f"{title}: No reliable data available."
+            lines = [f"{title}:"]
+            for key, value in values.items():
+                if isinstance(value, float):
+                    value_str = f"{value:.4f}" if abs(value) < 1 else f"{value:.2f}"
+                else:
+                    value_str = str(value)
+                lines.append(f"- {key}: {value_str}")
+            return "\n".join(lines)
+
+        prompt_parts = [
+            "You are a senior U.S. equity analyst tasked with producing an in-depth investment note.",
+            "Summarise the opportunity in clear English for a professional audience.",
+            "Blend quantitative metrics with qualitative insight and highlight catalysts, risks, and monitoring guidance.",
+            "Use section headings (Overview, Financial Health, Technical View, Sentiment & News, Investment Outlook).",
+            "Close with bullet-point action items for investors.",
+            "Avoid fabricating data – if something is missing, call it out explicitly.",
+            "",
+            f"Ticker: {stock_name} ({stock_code})",
+            f"Snapshot date: {analysis_date or datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            _format_dict("Price snapshot", price_info),
+            _format_dict("Scorecard (0-100 scale)", scores),
+            _format_dict("Technical indicators", technicals),
+            _format_dict("Fundamental indicators", fundamentals),
+            _format_dict("Sentiment signals", sentiment),
+            f"Model recommendation: {recommendation}",
+        ]
+
+        return "\n".join(part for part in prompt_parts if part)
+
+    def _rule_based_analysis(self, analysis_context: Dict) -> str:
+        """Fallback narrative when LLM providers are unavailable."""
+
+        stock_code = analysis_context.get("stock_code", "")
+        stock_name = analysis_context.get("stock_name", stock_code or "the company")
+        scores = analysis_context.get("scores", {})
+        price_info = analysis_context.get("price_info", {})
+        recommendation = analysis_context.get("recommendation", "Hold")
+
+        lines = [
+            f"Overview\n{stock_name} ({stock_code}) currently screens as a {recommendation.lower()} idea based on the blended scoring model.",
+        ]
+
+        if price_info:
+            price_line = "Price data is unavailable."
+            if price_info.get("current_price") is not None:
+                price_line = (
+                    f"The latest close is {price_info['current_price']:.2f}"
+                )
+                if price_info.get("price_change") is not None:
+                    price_line += f", a {price_info['price_change']:.2f}% move over the selected window."
+            lines.append(f"Market snapshot\n{price_line}")
+
+        if scores:
+            lines.append(
+                "Score breakdown\n"
+                f"Technical: {scores.get('technical', 0):.1f} · "
+                f"Fundamental: {scores.get('fundamental', 0):.1f} · "
+                f"Sentiment: {scores.get('sentiment', 0):.1f} · "
+                f"Composite: {scores.get('comprehensive', 0):.1f}"
+            )
+
+        lines.append(
+            "Outlook\n"
+            "Monitor earnings revisions, price-volume trends, and material news flow to validate the signal."
+        )
+
+        return "\n\n".join(lines)
+
+    def _call_ai_api(
+        self,
+        prompt: str,
+        enable_streaming: bool,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[str]:
+        """Invoke the preferred AI provider with graceful fallbacks."""
+
+        if not prompt.strip():
+            return None
+
+        preference = self.config.get("ai", {}).get("model_preference", "openai")
+        providers = [preference]
+        for candidate in ("openai", "anthropic", "zhipu"):
+            if candidate not in providers:
+                providers.append(candidate)
+
+        for provider in providers:
+            api_key = self.api_keys.get(provider)
+            if not api_key:
+                continue
+            try:
+                if provider == "openai":
+                    return self._call_openai_api(prompt, enable_streaming, stream_callback)
+                if provider == "anthropic":
+                    return self._call_anthropic_api(prompt, enable_streaming, stream_callback)
+                if provider == "zhipu":
+                    return self._call_zhipu_api(prompt, enable_streaming, stream_callback)
+            except Exception as exc:  # pragma: no cover - network dependent
+                logger.warning("AI provider %s failed: %s", provider, exc)
+
+        return None
+
+    def _call_openai_api(
+        self,
+        prompt: str,
+        enable_streaming: bool,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[str]:
+        """Call OpenAI's chat completion API with streaming support."""
+
+        import importlib
+
+        openai = importlib.import_module("openai")  # pragma: no cover - optional dependency
+
+        api_key = self.api_keys.get("openai")
+        if not api_key:
+            return None
+
+        config = self.config.get("ai", {})
+        model = config.get("models", {}).get("openai", "gpt-4o-mini")
+        max_tokens = config.get("max_tokens", 4000)
+        temperature = config.get("temperature", 0.7)
+        base_url = config.get("api_base_urls", {}).get("openai")
+
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an experienced U.S. equity analyst who writes rigorous investment reports.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        if hasattr(openai, "OpenAI"):
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            client = openai.OpenAI(**client_kwargs)
+
+            def _normalise_content(value):
+                if isinstance(value, list):
+                    parts = []
+                    for item in value:
+                        text = getattr(item, "text", None)
+                        if text is None and isinstance(item, dict):
+                            text = item.get("text")
+                        if text:
+                            parts.append(text)
+                    return "".join(parts)
+                return value or ""
+
+            if enable_streaming and stream_callback:
+                stream = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stream=True,
+                )
+                chunks: List[str] = []
+                for event in stream:
+                    choices = getattr(event, "choices", None)
+                    if not choices:
+                        continue
+                    for choice in choices:
+                        delta_choice = getattr(choice, "delta", None)
+                        content = getattr(delta_choice, "content", None) if delta_choice else None
+                        normalised = _normalise_content(content)
+                        if not normalised:
+                            continue
+                        stream_callback(normalised)
+                        chunks.append(normalised)
+                return "".join(chunks)
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            content = ""
+            if response.choices:
+                content = _normalise_content(response.choices[0].message.content)
+            if enable_streaming and stream_callback and content:
+                stream_callback(content)
+            return content
+
+        # Legacy openai library fallback
+        openai.api_key = api_key
+        if base_url:
+            openai.api_base = base_url
+
+        if enable_streaming and stream_callback:
+            completion = openai.ChatCompletion.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+            )
+            chunks = []
+            for chunk in completion:
+                if not chunk["choices"]:
+                    continue
+                delta = chunk["choices"][0]["delta"].get("content")
+                if delta:
+                    stream_callback(delta)
+                    chunks.append(delta)
+            return "".join(chunks)
+
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        content = response["choices"][0]["message"].get("content", "")
+        if enable_streaming and stream_callback and content:
+            stream_callback(content)
+        return content
+
+    def _call_anthropic_api(
+        self,
+        prompt: str,
+        enable_streaming: bool,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[str]:
+        """Call Anthropic's Claude models with optional streaming."""
+
+        from anthropic import Anthropic  # pragma: no cover - optional dependency
+
+        api_key = self.api_keys.get("anthropic")
+        if not api_key:
+            return None
+
+        client = Anthropic(api_key=api_key)
+        model = self.config.get("ai", {}).get("models", {}).get(
+            "anthropic", "claude-3-haiku-20240307"
+        )
+        max_tokens = self.config.get("ai", {}).get("max_tokens", 4000)
+        temperature = self.config.get("ai", {}).get("temperature", 0.7)
+
+        if enable_streaming and stream_callback:
+            with client.messages.stream(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system="You are an experienced U.S. equity analyst who writes rigorous investment reports.",
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                chunks: List[str] = []
+                for event in stream:
+                    if event.type == "content_block_delta":
+                        delta = event.delta.get("text")
+                        if delta:
+                            stream_callback(delta)
+                            chunks.append(delta)
+                return "".join(chunks)
+
+        message = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system="You are an experienced U.S. equity analyst who writes rigorous investment reports.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = "".join(block.text for block in message.content if hasattr(block, "text"))
+        if enable_streaming and stream_callback and content:
+            stream_callback(content)
+        return content
+
+    def _call_zhipu_api(
+        self,
+        prompt: str,
+        enable_streaming: bool,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[str]:
+        """Call ZhipuAI's chat completion endpoint."""
+
+        from zhipuai import ZhipuAI  # pragma: no cover - optional dependency
+
+        api_key = self.api_keys.get("zhipu")
+        if not api_key:
+            return None
+
+        client = ZhipuAI(api_key=api_key)
+        model = self.config.get("ai", {}).get("models", {}).get("zhipu", "chatglm_turbo")
+        temperature = self.config.get("ai", {}).get("temperature", 0.7)
+
+        if enable_streaming and stream_callback:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an experienced U.S. equity analyst who writes rigorous investment reports.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=temperature,
+                stream=True,
+            )
+            chunks: List[str] = []
+            for chunk in response:
+                choices = chunk.get("choices")
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {}).get("content")
+                if delta:
+                    stream_callback(delta)
+                    chunks.append(delta)
+            return "".join(chunks)
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an experienced U.S. equity analyst who writes rigorous investment reports.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
+        )
+        choices = response.get("choices") or []
+        if not choices:
+            return None
+        content = choices[0].get("message", {}).get("content", "")
+        if enable_streaming and stream_callback and content:
+            stream_callback(content)
+        return content
+
     def generate_ai_analysis(
         self,
         analysis_context: Dict,
@@ -660,23 +1010,24 @@ class EnhancedWebStockAnalyzer:
     ) -> str:
         """Produce an English narrative for the analysis."""
 
-        stock_code = analysis_context.get("stock_code")
-        stock_name = analysis_context.get("stock_name", stock_code)
-        scores = analysis_context.get("scores", {})
+        if not any(self.api_keys.get(key) for key in ("openai", "anthropic", "zhipu")):
+            logger.info("No AI API keys configured; using rule-based summary.")
+            fallback = self._rule_based_analysis(analysis_context)
+            if enable_streaming and stream_callback:
+                stream_callback(fallback)
+            return fallback
 
-        paragraphs = [
-            f"Summary for {stock_name} ({stock_code})",
-            f"Technical score: {scores.get('technical', 0):.1f} / 100",
-            f"Fundamental score: {scores.get('fundamental', 0):.1f} / 100",
-            f"Sentiment score: {scores.get('sentiment', 0):.1f} / 100",
-            f"Composite score: {scores.get('comprehensive', 0):.1f} / 100",
-        ]
+        prompt = self._build_ai_analysis_prompt(analysis_context)
+        logger.info("Submitting analysis prompt to AI provider (%s)", self.config.get("ai", {}).get("model_preference", "openai"))
+        response = self._call_ai_api(prompt, enable_streaming, stream_callback)
+        if response:
+            return response
 
-        text = "\n\n".join(paragraphs)
+        logger.warning("AI response unavailable. Falling back to rule-based analysis.")
+        fallback = self._rule_based_analysis(analysis_context)
         if enable_streaming and stream_callback:
-            for chunk in paragraphs:
-                stream_callback(chunk + "\n\n")
-        return text
+            stream_callback(fallback)
+        return fallback
 
     # ------------------------------------------------------------------
     # Orchestration
@@ -713,11 +1064,18 @@ class EnhancedWebStockAnalyzer:
 
         recommendation = self.generate_recommendation(scores, market)
 
+        analysis_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ai_analysis = self.generate_ai_analysis(
             {
                 "stock_code": normalized_code,
                 "stock_name": stock_name,
                 "scores": scores,
+                "price_info": price_info,
+                "technical_analysis": technical_indicators,
+                "fundamental_data": fundamental_data,
+                "sentiment_analysis": sentiment_analysis,
+                "recommendation": recommendation,
+                "analysis_date": analysis_timestamp,
             },
             enable_streaming,
             stream_callback,
@@ -729,7 +1087,7 @@ class EnhancedWebStockAnalyzer:
             "stock_name": stock_name,
             "market": market,
             "market_info": self.market_config.get(market, {}),
-            "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "analysis_date": analysis_timestamp,
             "price_info": price_info,
             "technical_analysis": technical_indicators,
             "fundamental_data": fundamental_data,

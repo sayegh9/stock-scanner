@@ -227,7 +227,9 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .score-card { background: #f3f4f6; border-radius: 12px; padding: 16px; text-align: center; }
         .score-card .value { font-size: 28px; font-weight: 700; }
         .result { background: #f9fafb; border-radius: 12px; padding: 20px; min-height: 260px; font-size: 14px; overflow-y: auto; }
-        .ai-stream { font-family: 'Segoe UI', sans-serif; white-space: pre-wrap; background: #fff; border-radius: 12px; padding: 16px; border: 1px solid #e5e7eb; margin-top: 16px; }
+        .ai-section { margin-top: 16px; display: none; }
+        .ai-section h3 { margin: 0 0 8px 0; font-size: 16px; color: #0f172a; }
+        .ai-stream { font-family: 'Segoe UI', sans-serif; white-space: pre-wrap; background: #fff; border-radius: 12px; padding: 16px; border: 1px solid #e5e7eb; }
         .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(37, 99, 235, 0.15); color: #1d4ed8; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
         @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
     </style>
@@ -271,7 +273,10 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                 </div>
                 <div class="log" id="logStream"></div>
                 <div class="result" id="resultPanel">Waiting for results…</div>
-                <div class="ai-stream" id="aiStream" style="display:none;"></div>
+                <div class="ai-section" id="aiSection">
+                    <h3>AI Deep Analysis</h3>
+                    <div class="ai-stream" id="aiStream"></div>
+                </div>
             </section>
         </div>
     </div>
@@ -405,26 +410,44 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         html += '<pre style="background:#fff;border-radius:10px;padding:12px;overflow:auto;">' +
             JSON.stringify(scores, null, 2) + '</pre>';
         container.innerHTML = html;
+
+        var aiPanel = document.getElementById('aiStream');
+        var aiSection = document.getElementById('aiSection');
+        if (aiPanel && aiSection) {
+            if (report && report.ai_analysis) {
+                if (!trim(aiPanel.textContent || '')) {
+                    aiPanel.textContent = report.ai_analysis;
+                }
+                aiSection.style.display = 'block';
+            } else if (!trim(aiPanel.textContent || '')) {
+                aiPanel.textContent = '';
+                aiSection.style.display = 'none';
+            }
+        }
     }
 
     function appendAI(content) {
         var panel = document.getElementById('aiStream');
+        var section = document.getElementById('aiSection');
         if (!panel) {
             return;
         }
-        if (panel.style.display !== 'block') {
-            panel.style.display = 'block';
+        if (section && section.style.display !== 'block') {
+            section.style.display = 'block';
         }
         panel.textContent = panel.textContent + content;
     }
 
     function resetAI() {
         var panel = document.getElementById('aiStream');
+        var section = document.getElementById('aiSection');
         if (!panel) {
             return;
         }
-        panel.style.display = 'none';
         panel.textContent = '';
+        if (section) {
+            section.style.display = 'none';
+        }
     }
 
     function resetDashboard() {

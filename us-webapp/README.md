@@ -26,7 +26,8 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
    ```bash
    cp config.sample.json config.json
    ```
-   - Provide at least one AI provider API key under `api_keys`.
+- Provide at least one AI provider API key under `api_keys`.
+   - Without a valid AI key the dashboard falls back to a concise rule-based summary instead of the in-depth AI report.
    - Review the `markets.us_stock` block (the only enabled market by default).
    - Enable `web_auth` and set a password if you want to gate the dashboard.
 
