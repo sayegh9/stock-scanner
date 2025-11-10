@@ -158,10 +158,10 @@ def require_auth(func):
 
 
 LOGIN_TEMPLATE = """<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign in · U.S. Stock Analyzer</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #0b1120; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
@@ -177,18 +177,18 @@ LOGIN_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div class=\"card\">
+    <div class="card">
         <h1>🔐 Secure access</h1>
         <p>Enhanced streaming analysis for U.S. equities.</p>
         {% if error %}
-        <div class=\"error\">{{ error }}</div>
+        <div class="error">{{ error }}</div>
         {% endif %}
-        <form method=\"POST\">
-            <label for=\"password\">Access password</label>
-            <input id=\"password\" name=\"password\" type=\"password\" required placeholder=\"Enter the shared password\">
-            <button type=\"submit\">Sign in</button>
+        <form method="POST">
+            <label for="password">Access password</label>
+            <input id="password" name="password" type="password" required placeholder="Enter the shared password">
+            <button type="submit">Sign in</button>
         </form>
-        <div class=\"meta\">
+        <div class="meta">
             Sessions expire after {{ timeout_minutes }} minutes.
         </div>
     </div>
@@ -198,10 +198,10 @@ LOGIN_TEMPLATE = """<!DOCTYPE html>
 
 
 MAIN_TEMPLATE = r"""<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-    <meta charset=\"UTF-8\">
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enhanced U.S. Stock Analyzer</title>
     <style>
         :root { color-scheme: light dark; }
@@ -233,347 +233,458 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div class=\"wrapper\">
+    <div class="wrapper">
         <header>
-            <div class=\"badge\">🇺🇸 Streaming U.S. equity intelligence</div>
+            <div class="badge">🇺🇸 Streaming U.S. equity intelligence</div>
             <h1>Enhanced U.S. Stock Analyzer</h1>
             <p>Submit a U.S. ticker to stream technical, fundamental, and sentiment insights in real time. Batch jobs analyse up to 10 symbols sequentially.</p>
         </header>
-        <div class=\"grid\">
-            <section class=\"panel\">
+        <div class="grid">
+            <section class="panel">
                 <h2>Run analysis</h2>
-                <label for=\"singleSymbol\">Ticker symbol</label>
-                <input id=\"singleSymbol\" placeholder=\"e.g. AAPL\" autocomplete=\"off\">
-                <div class=\"actions\">
-                    <button id=\"analyzeBtn\" type=\"button\">🚀 Stream analysis</button>
-                    <button id=\"resetBtn\" class=\"secondary\" type=\"button\">Clear</button>
+                <label for="singleSymbol">Ticker symbol</label>
+                <input id="singleSymbol" placeholder="e.g. AAPL" autocomplete="off">
+                <div class="actions">
+                    <button id="analyzeBtn" type="button">🚀 Stream analysis</button>
+                    <button id="resetBtn" class="secondary" type="button">Clear</button>
                 </div>
-                <hr style=\"margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;\">
+                <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;">
                 <h2>Batch workflow</h2>
-                <label for=\"batchSymbols\">Enter up to 10 tickers separated by commas</label>
-                <textarea id=\"batchSymbols\" placeholder=\"AAPL, MSFT, NVDA\"></textarea>
-                <div class=\"actions\">
-                    <button id=\"batchBtn\" type=\"button\">📦 Start batch</button>
+                <label for="batchSymbols">Enter up to 10 tickers separated by commas</label>
+                <textarea id="batchSymbols" placeholder="AAPL, MSFT, NVDA"></textarea>
+                <div class="actions">
+                    <button id="batchBtn" type="button">📦 Start batch</button>
                 </div>
-                <div class=\"status\" id=\"systemStatus\">Ready</div>
-                <div style=\"margin-top: 16px; font-size: 12px; color: #6b7280;\">
-                    <strong>Session:</strong> <span id=\"sessionId\"></span><br>
+                <div class="status" id="systemStatus">Ready</div>
+                <div style="margin-top: 16px; font-size: 12px; color: #6b7280;">
+                    <strong>Session:</strong> <span id="sessionId"></span><br>
                     <strong>Streaming:</strong> Server-Sent Events
                 </div>
             </section>
-            <section class=\"panel\">
+            <section class="panel">
                 <h2>Live feed</h2>
-                <div class=\"scores\">
-                    <div class=\"score-card\"><div>Technical</div><div class=\"value\" id=\"technicalScore\">--</div></div>
-                    <div class=\"score-card\"><div>Fundamental</div><div class=\"value\" id=\"fundamentalScore\">--</div></div>
-                    <div class=\"score-card\"><div>Sentiment</div><div class=\"value\" id=\"sentimentScore\">--</div></div>
-                    <div class=\"score-card\"><div>Composite</div><div class=\"value\" id=\"compositeScore\">--</div></div>
+                <div class="scores">
+                    <div class="score-card"><div>Technical</div><div class="value" id="technicalScore">--</div></div>
+                    <div class="score-card"><div>Fundamental</div><div class="value" id="fundamentalScore">--</div></div>
+                    <div class="score-card"><div>Sentiment</div><div class="value" id="sentimentScore">--</div></div>
+                    <div class="score-card"><div>Composite</div><div class="value" id="compositeScore">--</div></div>
                 </div>
-                <div class=\"log\" id=\"logStream\"></div>
-                <div class=\"result\" id=\"resultPanel\">Waiting for results…</div>
-                <div class=\"ai-stream\" id=\"aiStream\" style=\"display:none;\"></div>
+                <div class="log" id="logStream"></div>
+                <div class="result" id="resultPanel">Waiting for results…</div>
+                <div class="ai-stream" id="aiStream" style="display:none;"></div>
             </section>
         </div>
     </div>
 <script>
-const DEFAULT_MARKET = 'us_stock';
+(function () {
+    var DEFAULT_MARKET = 'us_stock';
+    var clientId = generateClientId();
+    var eventSource = null;
+    var currentReport = null;
+    var lastHeartbeat = new Date().getTime();
 
-function generateClientId() {
-    const globalCrypto = (typeof globalThis !== 'undefined' && globalThis.crypto) ||
-        (typeof window !== 'undefined' && window.crypto);
-    if (globalCrypto && typeof globalCrypto.randomUUID === 'function') {
-        return globalCrypto.randomUUID();
+    function generateClientId() {
+        try {
+            var cryptoObj = (typeof window !== 'undefined' && window.crypto) ? window.crypto : null;
+            if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
+                return cryptoObj.randomUUID();
+            }
+            if (cryptoObj && typeof cryptoObj.getRandomValues === 'function' && typeof Uint8Array !== 'undefined') {
+                var buffer = new Uint8Array(16);
+                cryptoObj.getRandomValues(buffer);
+                buffer[6] = (buffer[6] & 15) | 64;
+                buffer[8] = (buffer[8] & 63) | 128;
+                var hex = [];
+                for (var i = 0; i < buffer.length; i += 1) {
+                    var value = buffer[i].toString(16);
+                    if (value.length < 2) {
+                        value = '0' + value;
+                    }
+                    hex.push(value);
+                }
+                return hex.slice(0, 4).join('') + '-' +
+                    hex.slice(4, 6).join('') + '-' +
+                    hex.slice(6, 8).join('') + '-' +
+                    hex.slice(8, 10).join('') + '-' +
+                    hex.slice(10, 16).join('');
+            }
+        } catch (error) {
+            // ignore and fall back
+        }
+        return 'client-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1e9);
     }
-    if (globalCrypto && typeof globalCrypto.getRandomValues === 'function') {
-        const buffer = new Uint8Array(16);
-        globalCrypto.getRandomValues(buffer);
-        buffer[6] = (buffer[6] & 0x0f) | 0x40;
-        buffer[8] = (buffer[8] & 0x3f) | 0x80;
-        const hex = Array.from(buffer, (byte) => byte.toString(16).padStart(2, '0'));
-        return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+
+    function isWhitespace(character) {
+        return character === ' ' || character === '\n' || character === '\r' ||
+            character === '\t' || character === '\f' || character === '\v';
     }
-    return `client-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-}
 
-let clientId = generateClientId();
-let eventSource = null;
-let currentReport = null;
-let lastHeartbeat = Date.now();
-
-function setSessionId() {
-    const sessionTarget = document.getElementById('sessionId');
-    if (sessionTarget) {
-        sessionTarget.textContent = clientId;
+    function trim(value) {
+        var start = 0;
+        var end = value.length;
+        while (start < end && isWhitespace(value.charAt(start))) {
+            start += 1;
+        }
+        while (end > start && isWhitespace(value.charAt(end - 1))) {
+            end -= 1;
+        }
+        return value.substring(start, end);
     }
-}
 
-function addLog(message, level = 'info') {
-    const logPanel = document.getElementById('logStream');
-    const entry = document.createElement('div');
-    entry.className = 'log-entry';
-    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-    logPanel.appendChild(entry);
-    logPanel.scrollTop = logPanel.scrollHeight;
-}
+    function setSessionId() {
+        var sessionTarget = document.getElementById('sessionId');
+        if (sessionTarget) {
+            sessionTarget.textContent = clientId;
+        }
+    }
 
-function setStatus(text) {
-    document.getElementById('systemStatus').textContent = text;
-}
+    function addLog(message, level) {
+        var logPanel = document.getElementById('logStream');
+        if (!logPanel) {
+            return;
+        }
+        var entry = document.createElement('div');
+        entry.className = 'log-entry ' + (level || 'info');
+        entry.textContent = '[' + new Date().toLocaleTimeString() + '] ' + message;
+        logPanel.appendChild(entry);
+        logPanel.scrollTop = logPanel.scrollHeight;
+    }
 
-function updateScores(scores) {
-    const format = (value) => (value !== undefined && value !== null)
-        ? Number(value).toFixed(1)
-        : '--';
-    document.getElementById('technicalScore').textContent = format(scores.technical || 0);
-    document.getElementById('fundamentalScore').textContent = format(scores.fundamental || 0);
-    document.getElementById('sentimentScore').textContent = format(scores.sentiment || 0);
-    document.getElementById('compositeScore').textContent = format(scores.comprehensive || 0);
-}
+    function setStatus(text) {
+        var statusElement = document.getElementById('systemStatus');
+        if (statusElement) {
+            statusElement.textContent = text;
+        }
+    }
 
-function showResult(report) {
-    currentReport = report;
-    const container = document.getElementById('resultPanel');
-    const market = report.market_info || {};
-    container.innerHTML = `
-        <h3 style="margin-top:0;">${report.stock_name} (${report.stock_code})</h3>
-        <p><strong>Market:</strong> ${market.name || 'U.S. equities'} · ${market.currency || 'USD'}</p>
-        <p><strong>Current price:</strong> ${report.price_info.current_price.toFixed(2)} ${market.currency || 'USD'} · <strong>Change:</strong> ${report.price_info.price_change.toFixed(2)}%</p>
-        <p><strong>Recommendation:</strong> ${report.recommendation}</p>
-        <pre style="background:#fff;border-radius:10px;padding:12px;overflow:auto;">${JSON.stringify(report.scores, null, 2)}</pre>
-    `;
-}
+    function formatScore(value) {
+        if (value === undefined || value === null || value === '') {
+            return '--';
+        }
+        var numberValue = Number(value);
+        if (isNaN(numberValue)) {
+            return '--';
+        }
+        return numberValue.toFixed(1);
+    }
 
-function appendAI(content) {
-    const panel = document.getElementById('aiStream');
-    panel.style.display = 'block';
-    panel.textContent += content;
-}
+    function updateScores(scores) {
+        document.getElementById('technicalScore').textContent = formatScore(scores.technical);
+        document.getElementById('fundamentalScore').textContent = formatScore(scores.fundamental);
+        document.getElementById('sentimentScore').textContent = formatScore(scores.sentiment);
+        document.getElementById('compositeScore').textContent = formatScore(scores.comprehensive);
+    }
 
-function resetAI() {
-    const panel = document.getElementById('aiStream');
-    panel.style.display = 'none';
-    panel.textContent = '';
-}
+    function safeNumber(value) {
+        if (typeof value === 'number' && !isNaN(value)) {
+            return value.toFixed(2);
+        }
+        return 'N/A';
+    }
 
-function resetDashboard() {
-    document.getElementById('singleSymbol').value = '';
-    document.getElementById('batchSymbols').value = '';
-    document.getElementById('logStream').textContent = '';
-    document.getElementById('resultPanel').textContent = 'Waiting for results…';
-    updateScores({ technical: 0, fundamental: 0, sentiment: 0, comprehensive: 0 });
-    resetAI();
-    currentReport = null;
-    setStatus('Ready');
-}
+    function showResult(report) {
+        currentReport = report;
+        var container = document.getElementById('resultPanel');
+        if (!container) {
+            return;
+        }
+        var market = report && report.market_info ? report.market_info : {};
+        var stockName = report && report.stock_name ? report.stock_name : 'Unknown';
+        var stockCode = report && report.stock_code ? report.stock_code : '';
+        var currency = market.currency || 'USD';
+        var priceInfo = report && report.price_info ? report.price_info : {};
+        var recommendation = report && report.recommendation ? report.recommendation : 'N/A';
+        var scores = report && report.scores ? report.scores : {};
 
-function sendJsonRequest(url, payload) {
-    const body = JSON.stringify(payload);
-    if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
-        return window.fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body
-        }).then((response) => {
-            return response
-                .json()
-                .catch(() => ({}))
-                .then((data) => ({ ok: response.ok, status: response.status, data }));
+        var html = '';
+        html += '<h3 style="margin-top:0;">' + stockName + (stockCode ? ' (' + stockCode + ')' : '') + '</h3>';
+        html += '<p><strong>Market:</strong> ' + (market.name || 'U.S. equities') + ' · ' + currency + '</p>';
+        html += '<p><strong>Current price:</strong> ' + safeNumber(priceInfo.current_price) + ' ' + currency +
+            ' · <strong>Change:</strong> ' + safeNumber(priceInfo.price_change) + '%</p>';
+        html += '<p><strong>Recommendation:</strong> ' + recommendation + '</p>';
+        html += '<pre style="background:#fff;border-radius:10px;padding:12px;overflow:auto;">' +
+            JSON.stringify(scores, null, 2) + '</pre>';
+        container.innerHTML = html;
+    }
+
+    function appendAI(content) {
+        var panel = document.getElementById('aiStream');
+        if (!panel) {
+            return;
+        }
+        if (panel.style.display !== 'block') {
+            panel.style.display = 'block';
+        }
+        panel.textContent = panel.textContent + content;
+    }
+
+    function resetAI() {
+        var panel = document.getElementById('aiStream');
+        if (!panel) {
+            return;
+        }
+        panel.style.display = 'none';
+        panel.textContent = '';
+    }
+
+    function resetDashboard() {
+        var single = document.getElementById('singleSymbol');
+        var batch = document.getElementById('batchSymbols');
+        var logPanel = document.getElementById('logStream');
+        var resultPanel = document.getElementById('resultPanel');
+        if (single) {
+            single.value = '';
+        }
+        if (batch) {
+            batch.value = '';
+        }
+        if (logPanel) {
+            logPanel.textContent = '';
+        }
+        if (resultPanel) {
+            resultPanel.textContent = 'Waiting for results…';
+        }
+        updateScores({});
+        resetAI();
+        currentReport = null;
+        setStatus('Ready');
+    }
+
+    function sendJsonRequest(url, payload) {
+        var body = JSON.stringify(payload || {});
+        if (typeof window !== 'undefined' && window.fetch) {
+            return window.fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: body
+            }).then(function (response) {
+                return response.json().catch(function () { return {}; }).then(function (data) {
+                    return { ok: response.ok, status: response.status, data: data };
+                });
+            });
+        }
+
+        return new Promise(function (resolve, reject) {
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', url, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.onreadystatechange = function () {
+                    if (xhr.readyState === 4) {
+                        var data = {};
+                        try {
+                            data = JSON.parse(xhr.responseText || '{}');
+                        } catch (error) {
+                            data = {};
+                        }
+                        var ok = xhr.status >= 200 && xhr.status < 300;
+                        resolve({ ok: ok, status: xhr.status, data: data });
+                    }
+                };
+                xhr.onerror = function () {
+                    reject(new Error('Network request failed'));
+                };
+                xhr.send(body);
+            } catch (error) {
+                reject(error);
+            }
         });
     }
 
-    return new Promise((resolve, reject) => {
+    function connectSSE() {
+        if (typeof EventSource === 'undefined') {
+            return false;
+        }
         try {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onreadystatechange = () => {
-                if (xhr.readyState === 4) {
-                    let data = {};
-                    try {
-                        data = JSON.parse(xhr.responseText || '{}');
-                    } catch (error) {
-                        data = {};
-                    }
-                    const ok = xhr.status >= 200 && xhr.status < 300;
-                    resolve({ ok, status: xhr.status, data });
-                }
-            };
-            xhr.onerror = () => reject(new Error('Network request failed'));
-            xhr.send(body);
+            if (eventSource) {
+                eventSource.close();
+            }
+            var url = '/api/sse?client_id=' + encodeURIComponent(clientId);
+            eventSource = new EventSource(url);
         } catch (error) {
-            reject(error);
+            addLog('Unable to initialise streaming channel: ' + error, 'error');
+            return false;
         }
-    });
-}
 
-function connectSSE() {
-    if (typeof EventSource === 'undefined') {
-        return false;
-    }
-    try {
-        if (eventSource) {
-            eventSource.close();
-        }
-        const url = `/api/sse?client_id=${clientId}`;
-        eventSource = new EventSource(url);
-    } catch (error) {
-        addLog(`Unable to initialise streaming channel: ${error}`, 'error');
-        return false;
-    }
-    eventSource.onmessage = (event) => {
-        lastHeartbeat = Date.now();
-        const payload = JSON.parse(event.data);
-        const type = payload.event;
-        const data = payload.data || {};
+        eventSource.onmessage = function (event) {
+            lastHeartbeat = new Date().getTime();
+            var payload = {};
+            try {
+                payload = JSON.parse(event.data || '{}');
+            } catch (error) {
+                addLog('Received malformed event payload.', 'error');
+                return;
+            }
+            var type = payload.event;
+            var data = payload.data || {};
 
-        if (type === 'heartbeat') {
+            if (type === 'heartbeat') {
+                return;
+            }
+            if (type === 'connected') {
+                addLog('SSE channel ready.');
+                return;
+            }
+            if (type === 'log') {
+                addLog(data.message || '', data.type);
+                return;
+            }
+            if (type === 'progress') {
+                setStatus(data.message || 'Processing…');
+                return;
+            }
+            if (type === 'scores_update') {
+                updateScores(data.scores || {});
+                return;
+            }
+            if (type === 'final_result') {
+                showResult(data);
+                setStatus('Analysis complete');
+                return;
+            }
+            if (type === 'ai_stream') {
+                appendAI(data.content || '');
+                return;
+            }
+            if (type === 'analysis_complete') {
+                addLog(data.message || 'Completed');
+                return;
+            }
+            if (type === 'error') {
+                addLog(data.error || 'Unknown error', 'error');
+                setStatus('Error');
+            }
+        };
+
+        eventSource.onerror = function () {
+            setStatus('Connection lost. Reconnecting…');
+            setTimeout(connectSSE, 2000);
+        };
+        return true;
+    }
+
+    function normaliseSymbol(value) {
+        return trim(String(value || '')).toUpperCase();
+    }
+
+    function startSingleAnalysis(event) {
+        if (event && event.preventDefault) {
+            event.preventDefault();
+        }
+        var symbolInput = document.getElementById('singleSymbol');
+        var symbol = symbolInput ? normaliseSymbol(symbolInput.value) : '';
+        if (!symbol) {
+            addLog('Please enter a ticker symbol.', 'warning');
             return;
         }
-        if (type === 'connected') {
-            addLog('SSE channel ready.');
-            return;
-        }
-        if (type === 'log') {
-            addLog(data.message || '', data.type);
-            return;
-        }
-        if (type === 'progress') {
-            setStatus(data.message || 'Processing…');
-            return;
-        }
-        if (type === 'scores_update') {
-            updateScores(data.scores || {});
-            return;
-        }
-        if (type === 'final_result') {
-            showResult(data);
-            setStatus('Analysis complete');
-            return;
-        }
-        if (type === 'ai_stream') {
-            appendAI(data.content || '');
-            return;
-        }
-        if (type === 'analysis_complete') {
-            addLog(data.message || 'Completed');
-            return;
-        }
-        if (type === 'error') {
-            addLog(data.error || 'Unknown error', 'error');
+        resetAI();
+        setStatus('Streaming analysis for ' + symbol + '…');
+        addLog('Submitting ' + symbol + ' to the analyzer.');
+
+        sendJsonRequest('/api/analyze_stream', {
+            stock_code: symbol,
+            client_id: clientId,
+            target_market: DEFAULT_MARKET,
+            enable_streaming: true
+        }).then(function (result) {
+            var ok = result.ok;
+            var status = result.status;
+            var data = result.data || {};
+            if (!ok || !data.success) {
+                addLog((data && data.error) ? data.error : 'Request failed (' + status + ')', 'error');
+                setStatus('Error');
+            }
+        }).catch(function (error) {
+            addLog('Network error: ' + error, 'error');
             setStatus('Error');
+        });
+    }
+
+    function startBatchAnalysis(event) {
+        if (event && event.preventDefault) {
+            event.preventDefault();
+        }
+        var raw = document.getElementById('batchSymbols');
+        var entries = [];
+        if (raw && raw.value) {
+            var parts = raw.value.split(',');
+            for (var i = 0; i < parts.length; i += 1) {
+                var cleaned = normaliseSymbol(parts[i]);
+                if (cleaned) {
+                    entries.push(cleaned);
+                }
+            }
+        }
+
+        if (!entries.length) {
+            addLog('Please provide at least one ticker.', 'warning');
             return;
         }
-    };
-    eventSource.onerror = () => {
-        setStatus('Connection lost. Reconnecting…');
-        setTimeout(connectSSE, 2000);
-    };
-    return true;
-}
+        if (entries.length > 10) {
+            addLog('Batch analysis supports up to 10 tickers.', 'warning');
+            return;
+        }
 
-function startSingleAnalysis(event) {
-    if (event) {
-        event.preventDefault();
-    }
-    const symbol = document.getElementById('singleSymbol').value.trim().toUpperCase();
-    if (!symbol) {
-        addLog('Please enter a ticker symbol.', 'warning');
-        return;
-    }
-    resetAI();
-    setStatus(`Streaming analysis for ${symbol}…`);
-    addLog(`Submitting ${symbol} to the analyzer.`);
+        resetAI();
+        setStatus('Running batch analysis for ' + entries.length + ' tickers…');
+        addLog('Submitting batch: ' + entries.join(', '));
 
-    sendJsonRequest('/api/analyze_stream', {
-        stock_code: symbol,
-        client_id: clientId,
-        target_market: DEFAULT_MARKET,
-        enable_streaming: true
-    }).then((result) => {
-        const { ok, status, data } = result;
-        if (!ok || !data.success) {
-            addLog((data && data.error) || `Request failed (${status})`, 'error');
+        sendJsonRequest('/api/batch_analyze_stream', {
+            stock_codes: entries,
+            client_id: clientId,
+            enable_streaming: true
+        }).then(function (result) {
+            var ok = result.ok;
+            var status = result.status;
+            var data = result.data || {};
+            if (!ok || !data.success) {
+                addLog((data && data.error) ? data.error : 'Batch request failed (' + status + ')', 'error');
+                setStatus('Error');
+            }
+        }).catch(function (error) {
+            addLog('Network error: ' + error, 'error');
             setStatus('Error');
+        });
+    }
+
+    function bindControls() {
+        var analyzeBtn = document.getElementById('analyzeBtn');
+        if (analyzeBtn && analyzeBtn.addEventListener) {
+            analyzeBtn.addEventListener('click', startSingleAnalysis);
         }
-    }).catch((error) => {
-        addLog(`Network error: ${error}`, 'error');
-        setStatus('Error');
-    });
-}
-
-function startBatchAnalysis(event) {
-    if (event) {
-        event.preventDefault();
-    }
-    const entries = document.getElementById('batchSymbols').value
-        .split(',')
-        .map((value) => value.trim().toUpperCase())
-        .filter(Boolean);
-    if (!entries.length) {
-        addLog('Please provide at least one ticker.', 'warning');
-        return;
-    }
-    if (entries.length > 10) {
-        addLog('Batch analysis supports up to 10 tickers.', 'warning');
-        return;
-    }
-    resetAI();
-    setStatus(`Running batch analysis for ${entries.length} tickers…`);
-    addLog(`Submitting batch: ${entries.join(', ')}`);
-
-    sendJsonRequest('/api/batch_analyze_stream', {
-        stock_codes: entries,
-        client_id: clientId,
-        enable_streaming: true
-    }).then((result) => {
-        const { ok, status, data } = result;
-        if (!ok || !data.success) {
-            addLog((data && data.error) || `Batch request failed (${status})`, 'error');
-            setStatus('Error');
+        var batchBtn = document.getElementById('batchBtn');
+        if (batchBtn && batchBtn.addEventListener) {
+            batchBtn.addEventListener('click', startBatchAnalysis);
         }
-    }).catch((error) => {
-        addLog(`Network error: ${error}`, 'error');
-        setStatus('Error');
-    });
-}
-
-function bindControls() {
-    const analyzeBtn = document.getElementById('analyzeBtn');
-    if (analyzeBtn) {
-        analyzeBtn.addEventListener('click', startSingleAnalysis);
-    }
-    const batchBtn = document.getElementById('batchBtn');
-    if (batchBtn) {
-        batchBtn.addEventListener('click', startBatchAnalysis);
-    }
-    const resetBtn = document.getElementById('resetBtn');
-    if (resetBtn) {
-        resetBtn.addEventListener('click', resetDashboard);
-    }
-}
-
-function initialiseDashboard() {
-    bindControls();
-    setSessionId();
-    const streamingActive = connectSSE();
-    if (!streamingActive) {
-        addLog('Live streaming is unavailable in this browser. Requests will still run, but updates will appear after completion.', 'warning');
-        setStatus('Streaming unavailable');
-        return;
-    }
-    setInterval(() => {
-        if (Date.now() - lastHeartbeat > 60000) {
-            addLog('No heartbeat from server. Reconnecting…', 'warning');
-            connectSSE();
+        var resetBtn = document.getElementById('resetBtn');
+        if (resetBtn && resetBtn.addEventListener) {
+            resetBtn.addEventListener('click', resetDashboard);
         }
-    }, 15000);
-}
+    }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialiseDashboard);
-} else {
-    initialiseDashboard();
-}
+    function initialiseDashboard() {
+        bindControls();
+        setSessionId();
+        var streamingActive = connectSSE();
+        if (!streamingActive) {
+            addLog('Live streaming is unavailable in this browser. Requests will still run, but updates will appear after completion.', 'warning');
+            setStatus('Streaming unavailable');
+            return;
+        }
+        setInterval(function () {
+            if (new Date().getTime() - lastHeartbeat > 60000) {
+                addLog('No heartbeat from server. Reconnecting…', 'warning');
+                connectSSE();
+            }
+        }, 15000);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialiseDashboard);
+    } else {
+        initialiseDashboard();
+    }
+})();
 </script>
 </body>
 </html>"""
