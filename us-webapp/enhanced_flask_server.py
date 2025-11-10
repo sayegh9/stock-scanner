@@ -245,15 +245,15 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                 <label for=\"singleSymbol\">Ticker symbol</label>
                 <input id=\"singleSymbol\" placeholder=\"e.g. AAPL\" autocomplete=\"off\">
                 <div class=\"actions\">
-                    <button id=\"analyzeBtn\" onclick=\"startSingleAnalysis()\">🚀 Stream analysis</button>
-                    <button class=\"secondary\" onclick=\"resetDashboard()\">Clear</button>
+                    <button id=\"analyzeBtn\" type=\"button\">🚀 Stream analysis</button>
+                    <button id=\"resetBtn\" class=\"secondary\" type=\"button\">Clear</button>
                 </div>
                 <hr style=\"margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;\">
                 <h2>Batch workflow</h2>
                 <label for=\"batchSymbols\">Enter up to 10 tickers separated by commas</label>
                 <textarea id=\"batchSymbols\" placeholder=\"AAPL, MSFT, NVDA\"></textarea>
                 <div class=\"actions\">
-                    <button onclick=\"startBatchAnalysis()\">📦 Start batch</button>
+                    <button id=\"batchBtn\" type=\"button\">📦 Start batch</button>
                 </div>
                 <div class=\"status\" id=\"systemStatus\">Ready</div>
                 <div style=\"margin-top: 16px; font-size: 12px; color: #6b7280;\">
@@ -415,7 +415,10 @@ function connectSSE() {
     };
 }
 
-async function startSingleAnalysis() {
+async function startSingleAnalysis(event) {
+    if (event) {
+        event.preventDefault();
+    }
     const symbol = document.getElementById('singleSymbol').value.trim().toUpperCase();
     if (!symbol) {
         addLog('Please enter a ticker symbol.', 'warning');
@@ -425,20 +428,28 @@ async function startSingleAnalysis() {
     setStatus(`Streaming analysis for ${symbol}…`);
     addLog(`Submitting ${symbol} to the analyzer.`);
 
-    const response = await fetch('/api/analyze_stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock_code: symbol, client_id: clientId, target_market: DEFAULT_MARKET, enable_streaming: true })
-    });
+    try {
+        const response = await fetch('/api/analyze_stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stock_code: symbol, client_id: clientId, target_market: DEFAULT_MARKET, enable_streaming: true })
+        });
 
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-        addLog(data.error || 'Request failed', 'error');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+            addLog(data.error || `Request failed (${response.status})`, 'error');
+            setStatus('Error');
+        }
+    } catch (error) {
+        addLog(`Network error: ${error}`, 'error');
         setStatus('Error');
     }
 }
 
-async function startBatchAnalysis() {
+async function startBatchAnalysis(event) {
+    if (event) {
+        event.preventDefault();
+    }
     const entries = document.getElementById('batchSymbols').value.split(',').map(v => v.trim().toUpperCase()).filter(Boolean);
     if (!entries.length) {
         addLog('Please provide at least one ticker.', 'warning');
@@ -452,25 +463,41 @@ async function startBatchAnalysis() {
     setStatus(`Running batch analysis for ${entries.length} tickers…`);
     addLog(`Submitting batch: ${entries.join(', ')}`);
 
-    const response = await fetch('/api/batch_analyze_stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock_codes: entries, client_id: clientId, enable_streaming: true })
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-        addLog(data.error || 'Batch request failed', 'error');
+    try {
+        const response = await fetch('/api/batch_analyze_stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stock_codes: entries, client_id: clientId, enable_streaming: true })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) {
+            addLog(data.error || `Batch request failed (${response.status})`, 'error');
+            setStatus('Error');
+        }
+    } catch (error) {
+        addLog(`Network error: ${error}`, 'error');
         setStatus('Error');
     }
 }
 
-connectSSE();
-setInterval(() => {
-    if (Date.now() - lastHeartbeat > 60000) {
-        addLog('No heartbeat from server. Reconnecting…', 'warning');
-        connectSSE();
-    }
-}, 15000);
+function initialiseDashboard() {
+    connectSSE();
+    document.getElementById('analyzeBtn').addEventListener('click', startSingleAnalysis);
+    document.getElementById('batchBtn').addEventListener('click', startBatchAnalysis);
+    document.getElementById('resetBtn').addEventListener('click', resetDashboard);
+    setInterval(() => {
+        if (Date.now() - lastHeartbeat > 60000) {
+            addLog('No heartbeat from server. Reconnecting…', 'warning');
+            connectSSE();
+        }
+    }, 15000);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialiseDashboard);
+} else {
+    initialiseDashboard();
+}
 </script>
 </body>
 </html>"""
