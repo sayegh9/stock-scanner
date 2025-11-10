@@ -3,7 +3,7 @@
         "openai": "sk-your-openai-api-key-here",
         "anthropic": "sk-ant-your-claude-api-key-here",
         "zhipu": "your-zhipu-api-key-here",
-        "notes": "请填入您的API密钥，至少配置一个"
+        "notes": "Enter your API keys; configure at least one provider."
     },
     "ai": {
         "model_preference": "openai",
@@ -16,14 +16,14 @@
         "temperature": 0.7,
         "api_base_urls": {
             "openai": "https://api.openai.com/v1",
-            "notes": "如使用中转API，修改上述URL"
+            "notes": "Update the URL above if you use a proxy API service."
         }
     },
     "analysis_weights": {
         "technical": 0.4,
         "fundamental": 0.4,
         "sentiment": 0.2,
-        "notes": "权重总和应为1.0"
+        "notes": "The weights must add up to 1.0."
     },
     "cache": {
         "price_hours": 1,
@@ -42,36 +42,36 @@
     },
     "markets": {
         "a_stock": {
-            "enabled": true,
+            "enabled": false,
             "currency": "CNY",
             "timezone": "Asia/Shanghai",
             "trading_hours": "09:30-15:00",
-            "notes": "中国A股市场"
+            "notes": "China A-share market (disabled)"
         },
         "hk_stock": {
-            "enabled": true,
-            "currency": "HKD", 
+            "enabled": false,
+            "currency": "HKD",
             "timezone": "Asia/Hong_Kong",
             "trading_hours": "09:30-16:00",
-            "notes": "香港股票市场"
+            "notes": "Hong Kong stock market (disabled)"
         },
         "us_stock": {
             "enabled": true,
             "currency": "USD",
-            "timezone": "America/New_York", 
+            "timezone": "America/New_York",
             "trading_hours": "09:30-16:00",
-            "notes": "美国股票市场"
+            "notes": "Primary U.S. stock market configuration"
         }
     },
     "web_auth": {
         "enabled": false,
         "password": "",
         "session_timeout": 3600,
-        "notes": "Web界面密码鉴权配置，可选启用"
+        "notes": "Optional password authentication for the web UI."
     },
     "_metadata": {
         "version": "3.1.0-multi-market-streaming",
-        "description": "增强版AI股票分析系统配置文件（支持A股/港股/美股 + AI流式输出）",
+        "description": "Enhanced AI stock analysis system configuration (U.S. equities + AI streaming output)",
         "last_updated": "2024-01-15"
     }
 }

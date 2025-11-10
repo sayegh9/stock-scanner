@@ -5,6 +5,8 @@
 这是一个比较专业的AI增强 A股股票分析系统，集成了**25项财务指标分析**、**综合新闻情绪分析**、**技术指标计算**和**AI深度解读**。系统支持多种AI模型（OpenAI GPT、Claude、智谱AI），提供桌面GUI和Web两种界面，具备实时流式推送功能。
 暂时只支持中国股票，港美股正在优化还未发布，港美股新闻信息等获取受限缓慢优化中。
 
+> **New 🇺🇸 English project:** The streamlined U.S.-market, English-only web experience that was previously inside `3.1 webapp` is now preserved separately under `us-webapp/`. Use that folder if you need the English interface and U.S. data pipeline while keeping the original multi-market 3.1 codebase intact.
+
 ### 近期刚刚开学。事情比较多有点摆。可能有些问题修复受限（在逆向学校查寝系统中）
 ## 💰 请我喝奶茶
 
