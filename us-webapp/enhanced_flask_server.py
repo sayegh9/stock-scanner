@@ -202,84 +202,634 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enhanced U.S. Stock Analyzer</title>
+    <title>Modern Stock Analysis System · SSE Streaming</title>
     <style>
-        :root { color-scheme: light dark; }
-        body { font-family: 'Segoe UI', sans-serif; background: #0f172a; margin: 0; padding: 0; color: #0b1120; }
-        .wrapper { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
-        header { margin-bottom: 24px; color: white; }
-        header h1 { margin: 0 0 8px 0; font-size: 32px; font-weight: 700; }
-        header p { margin: 0; max-width: 640px; color: rgba(255,255,255,0.75); }
-        .grid { display: grid; grid-template-columns: 360px 1fr; gap: 24px; }
-        .panel { background: white; border-radius: 18px; box-shadow: 0 30px 60px rgba(15, 23, 42, 0.25); padding: 24px; }
-        h2 { margin-top: 0; font-size: 20px; }
-        label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #1f2937; }
-        input, textarea { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #d1d5db; font-size: 14px; }
-        textarea { min-height: 120px; }
-        button { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; background: linear-gradient(135deg, #2563eb, #7c3aed); color: white; }
-        button.secondary { background: #f3f4f6; color: #1f2937; }
-        button:disabled { opacity: 0.6; cursor: not-allowed; }
-        .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
-        .status { margin-top: 16px; padding: 12px; border-radius: 10px; font-size: 14px; background: #e0f2fe; color: #0c4a6e; }
-        .log { background: #0b1120; color: #e2e8f0; font-family: 'Consolas', monospace; font-size: 13px; border-radius: 12px; padding: 16px; height: 220px; overflow-y: auto; }
-        .log-entry { margin-bottom: 4px; }
-        .scores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-        .score-card { background: #f3f4f6; border-radius: 12px; padding: 16px; text-align: center; }
-        .score-card .value { font-size: 28px; font-weight: 700; }
-        .result { background: #f9fafb; border-radius: 12px; padding: 20px; min-height: 260px; font-size: 14px; overflow-y: auto; }
-        .ai-section { margin-top: 16px; display: none; }
-        .ai-section h3 { margin: 0 0 8px 0; font-size: 16px; color: #0f172a; }
-        .ai-stream { font-family: 'Segoe UI', sans-serif; white-space: pre-wrap; background: #fff; border-radius: 12px; padding: 16px; border: 1px solid #e5e7eb; }
-        .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(37, 99, 235, 0.15); color: #1d4ed8; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-        @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+        :root {
+            color-scheme: light;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #eef2ff;
+            color: #0f172a;
+        }
+        a { color: inherit; text-decoration: none; }
+        .hero {
+            background: linear-gradient(135deg, #312e81 0%, #1d4ed8 45%, #9333ea 100%);
+            color: white;
+            padding: 48px 0 56px;
+        }
+        .hero-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 32px;
+            display: flex;
+            gap: 32px;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        .hero-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            background: rgba(255, 255, 255, 0.16);
+            border-radius: 999px;
+            padding: 8px 14px;
+        }
+        .hero h1 {
+            margin: 16px 0 12px;
+            font-size: 36px;
+            font-weight: 700;
+        }
+        .hero p {
+            margin: 0 0 20px;
+            font-size: 17px;
+            max-width: 560px;
+            color: rgba(255, 255, 255, 0.82);
+        }
+        .hero-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .hero-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.25);
+            font-size: 13px;
+        }
+        .hero-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+            display: inline-block;
+        }
+        .hero-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-width: 240px;
+        }
+        .hero-button {
+            align-self: flex-end;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            font-weight: 600;
+            padding: 10px 18px;
+            border-radius: 999px;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+        .hero-button:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+        .hero-stat {
+            background: rgba(15, 23, 42, 0.25);
+            border-radius: 16px;
+            padding: 16px 18px;
+        }
+        .hero-stat span {
+            display: block;
+            font-size: 12px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .hero-stat strong {
+            display: block;
+            margin-top: 6px;
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+        }
+        main.layout {
+            max-width: 1200px;
+            margin: -32px auto 64px;
+            padding: 0 32px;
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 28px;
+        }
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .card {
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 30px 60px rgba(15, 23, 42, 0.18);
+            padding: 28px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        .card-header h2 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+        }
+        .card-header p {
+            margin: 6px 0 0;
+            font-size: 14px;
+            color: #6b7280;
+        }
+        .status-pill {
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 600;
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+        .status-pill.offline {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .status-pill.live {
+            background: rgba(74, 222, 128, 0.18);
+            color: #047857;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        .status-item {
+            display: flex;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .status-item.ok {
+            border-color: rgba(74, 222, 128, 0.35);
+            background: #f0fdf4;
+        }
+        .status-item.warn {
+            border-color: rgba(251, 191, 36, 0.45);
+            background: #fffbeb;
+        }
+        .status-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .status-item.ok .status-icon {
+            background: #4ade80;
+            color: #064e3b;
+        }
+        .status-item.warn .status-icon {
+            background: #fbbf24;
+            color: #78350f;
+        }
+        .status-title {
+            font-weight: 600;
+            font-size: 15px;
+        }
+        .status-subtitle {
+            font-size: 13px;
+            color: #64748b;
+        }
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 8px;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            border-radius: 14px;
+            border: 1px solid #cbd5f5;
+            background: #f8fafc;
+            padding: 14px;
+            font-size: 15px;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+            color: #0f172a;
+        }
+        input[type="text"]:focus, textarea:focus {
+            border-color: #6366f1;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+        }
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        .input-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .primary-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 20px;
+            border-radius: 14px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 15px;
+            background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+            color: white;
+            box-shadow: 0 12px 24px rgba(79, 70, 229, 0.35);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .primary-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 20px 32px rgba(79, 70, 229, 0.35);
+        }
+        .ghost-button {
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 1px solid #cbd5f5;
+            background: #f8fafc;
+            color: #1f2937;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .ghost-button:hover {
+            background: #e2e8f0;
+        }
+        .hint {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: -6px;
+            margin-bottom: 18px;
+        }
+        .divider {
+            margin: 26px 0 20px;
+            border-top: 1px dashed #cbd5f5;
+        }
+        .status-banner {
+            margin-top: 20px;
+            padding: 14px 18px;
+            border-radius: 14px;
+            background: #e0f2fe;
+            color: #0c4a6e;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .log-panel {
+            background: #0f172a;
+            border-radius: 18px;
+            padding: 18px;
+            height: 240px;
+            overflow-y: auto;
+            font-family: 'Source Code Pro', 'Consolas', monospace;
+            color: #e2e8f0;
+            font-size: 13px;
+        }
+        .log-entry { margin-bottom: 6px; }
+        .log-entry.error { color: #fca5a5; }
+        .log-entry.warning { color: #facc15; }
+        .score-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .score-card {
+            border-radius: 20px;
+            padding: 18px 20px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            box-shadow: 0 18px 28px rgba(15, 23, 42, 0.15);
+        }
+        .score-card .label {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .score-card .value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        .score-card .caption {
+            font-size: 13px;
+            opacity: 0.8;
+        }
+        .score-card.technical { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
+        .score-card.fundamental { background: linear-gradient(135deg, #14b8a6, #0f766e); }
+        .score-card.sentiment { background: linear-gradient(135deg, #f59e0b, #d946ef); }
+        .score-card.composite { background: linear-gradient(135deg, #6366f1, #312e81); }
+        .result-shell {
+            border-radius: 20px;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            padding: 22px;
+            margin-bottom: 24px;
+        }
+        .result-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin: 0 0 12px;
+            color: #1f2937;
+        }
+        .result-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #475569;
+        }
+        .result-grid {
+            display: grid;
+            gap: 14px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        }
+        .result-item {
+            background: white;
+            border-radius: 14px;
+            padding: 14px;
+            border: 1px solid #e2e8f0;
+        }
+        .result-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+        .result-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+        .result-body {
+            margin-top: 18px;
+            background: rgba(99, 102, 241, 0.06);
+            border-left: 4px solid #6366f1;
+            border-radius: 12px;
+            padding: 16px 18px;
+            font-size: 14px;
+            color: #1f2937;
+            min-height: 110px;
+        }
+        .ai-section { display: none; }
+        .ai-section h3 {
+            margin: 0 0 12px;
+            font-size: 18px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        .ai-stream {
+            background: #fef3c7;
+            border: 1px solid #fcd34d;
+            border-radius: 18px;
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #78350f;
+            white-space: pre-wrap;
+        }
+        .meta-panel {
+            margin-top: 24px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+        }
+        .meta-card {
+            border-radius: 16px;
+            padding: 16px 18px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+        .meta-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+        }
+        .meta-value {
+            display: block;
+            margin-top: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        @media (max-width: 1024px) {
+            main.layout {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (max-width: 720px) {
+            .hero-content {
+                padding: 0 20px;
+            }
+            main.layout {
+                padding: 0 20px;
+            }
+            .input-row {
+                flex-direction: column;
+            }
+            .hero-actions {
+                width: 100%;
+                flex-direction: row;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+            .hero-button { align-self: stretch; text-align: center; }
+        }
     </style>
 </head>
 <body>
-    <div class="wrapper">
-        <header>
-            <div class="badge">🇺🇸 Streaming U.S. equity intelligence</div>
-            <h1>Enhanced U.S. Stock Analyzer</h1>
-            <p>Submit a U.S. ticker to stream technical, fundamental, and sentiment insights in real time. Batch jobs analyse up to 10 symbols sequentially.</p>
-        </header>
-        <div class="grid">
-            <section class="panel">
-                <h2>Run analysis</h2>
+    {% set ui = ui_context or {} %}
+    {% set streaming = ui.get('streaming', {}) %}
+    {% set ai = ui.get('ai', {}) %}
+    {% set markets = ui.get('markets', []) %}
+    <div class="hero">
+        <div class="hero-content">
+            <div>
+                <div class="hero-eyebrow">Modern Stock Analysis System</div>
+                <h1>SSE Streaming Version</h1>
+                <p>English-language dashboard delivering technical, fundamental, sentiment, and AI intelligence for U.S. equities in real time.</p>
+                <div class="hero-meta">
+                    <span class="hero-chip"><span class="hero-dot"></span>Streaming {{ 'enabled' if streaming.get('enabled') else 'disabled' }} · {{ '%.2f' % streaming.get('delay', 0.0) }}s cadence</span>
+                    <span class="hero-chip">Primary market · {{ ui.get('market_summary') or 'Configure markets in config.json' }}</span>
+                </div>
+            </div>
+            <div class="hero-actions">
+                {% if auth_enabled %}
+                <a class="hero-button" href="/logout">Sign out</a>
+                {% endif %}
+                <div class="hero-stat">
+                    <span>Session ID</span>
+                    <strong id="sessionId">--</strong>
+                </div>
+                <div class="hero-stat">
+                    <span>AI provider</span>
+                    <strong>{{ ai.get('model') if ai.get('has_keys') else 'API key required' }}</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+    <main class="layout">
+        <section class="column">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2>Stock Control</h2>
+                        <p>Launch live streaming runs or queue batch requests for up to ten tickers.</p>
+                    </div>
+                    <span class="status-pill {{ 'live' if streaming.get('enabled') else 'offline' }}">{{ 'Live streaming' if streaming.get('enabled') else 'Offline mode' }}</span>
+                </div>
+                <div class="status-grid">
+                    <div class="status-item {{ 'ok' if streaming.get('enabled') else 'warn' }}">
+                        <div class="status-icon">{{ '✓' if streaming.get('enabled') else '!' }}</div>
+                        <div>
+                            <div class="status-title">Streaming {{ 'enabled' if streaming.get('enabled') else 'disabled' }}</div>
+                            <div class="status-subtitle">Server-Sent Events · {{ '%.2f' % streaming.get('delay', 0.0) }}s cadence{% if streaming.get('show_thinking') %} · AI thinking visible{% endif %}</div>
+                        </div>
+                    </div>
+                    <div class="status-item {{ 'ok' if ai.get('has_keys') else 'warn' }}">
+                        <div class="status-icon">{{ '✓' if ai.get('has_keys') else '!' }}</div>
+                        <div>
+                            <div class="status-title">AI model preference · {{ ai.get('preference', 'openai')|upper }}</div>
+                            <div class="status-subtitle">{{ ai.get('model') if ai.get('has_keys') else 'Add an API key to unlock the AI deep-dive report.' }}</div>
+                        </div>
+                    </div>
+                    <div class="status-item ok">
+                        <div class="status-icon">✓</div>
+                        <div>
+                            <div class="status-title">Market coverage</div>
+                            <div class="status-subtitle">{% if markets %}{% for market in markets %}{{ market.name }} · {{ market.currency }} · {{ market.timezone }}{% if not loop.last %} | {% endif %}{% endfor %}{% else %}Enable at least one market in config.json{% endif %}</div>
+                        </div>
+                    </div>
+                    {% if ui.get('weights') %}
+                    <div class="status-item ok">
+                        <div class="status-icon">✓</div>
+                        <div>
+                            <div class="status-title">Scoring focus</div>
+                            <div class="status-subtitle">{{ ui.get('weights') }}</div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if ui.get('cache') %}
+                    <div class="status-item ok">
+                        <div class="status-icon">✓</div>
+                        <div>
+                            <div class="status-title">Cache windows</div>
+                            <div class="status-subtitle">{{ ui.get('cache') }}</div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
                 <label for="singleSymbol">Ticker symbol</label>
-                <input id="singleSymbol" placeholder="e.g. AAPL" autocomplete="off">
-                <div class="actions">
-                    <button id="analyzeBtn" type="button">🚀 Stream analysis</button>
-                    <button id="resetBtn" class="secondary" type="button">Clear</button>
+                <div class="input-row">
+                    <input id="singleSymbol" type="text" placeholder="e.g. AAPL" autocomplete="off">
+                    <button id="analyzeBtn" type="button" class="primary-button">🚀 Stream analysis</button>
                 </div>
-                <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;">
-                <h2>Batch workflow</h2>
-                <label for="batchSymbols">Enter up to 10 tickers separated by commas</label>
+                <div class="hint">Use standard U.S. ticker symbols (1–7 characters).</div>
+                <div class="divider"></div>
+                <label for="batchSymbols">Batch queue (comma separated)</label>
                 <textarea id="batchSymbols" placeholder="AAPL, MSFT, NVDA"></textarea>
-                <div class="actions">
-                    <button id="batchBtn" type="button">📦 Start batch</button>
+                <div class="hint">Batch analysis processes up to 10 tickers sequentially.</div>
+                <button id="batchBtn" type="button" class="primary-button">📦 Start batch run</button>
+                <div class="status-banner" id="systemStatus">Ready</div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2>Activity log</h2>
+                        <p>Real-time server updates, errors, and streaming events.</p>
+                    </div>
+                    <button id="resetBtn" type="button" class="ghost-button">Reset dashboard</button>
                 </div>
-                <div class="status" id="systemStatus">Ready</div>
-                <div style="margin-top: 16px; font-size: 12px; color: #6b7280;">
-                    <strong>Session:</strong> <span id="sessionId"></span><br>
-                    <strong>Streaming:</strong> Server-Sent Events
+                <div class="log-panel" id="logStream"></div>
+            </div>
+        </section>
+        <section class="column">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2>Analysis results</h2>
+                        <p>Scores refresh as each analytical stage completes.</p>
+                    </div>
+                    <span class="status-pill {{ 'live' if streaming.get('enabled') else 'offline' }}">{{ 'Streaming mode' if streaming.get('enabled') else 'Awaiting data' }}</span>
                 </div>
-            </section>
-            <section class="panel">
-                <h2>Live feed</h2>
-                <div class="scores">
-                    <div class="score-card"><div>Technical</div><div class="value" id="technicalScore">--</div></div>
-                    <div class="score-card"><div>Fundamental</div><div class="value" id="fundamentalScore">--</div></div>
-                    <div class="score-card"><div>Sentiment</div><div class="value" id="sentimentScore">--</div></div>
-                    <div class="score-card"><div>Composite</div><div class="value" id="compositeScore">--</div></div>
+                <div class="score-grid">
+                    <div class="score-card technical">
+                        <span class="label">Technical</span>
+                        <span class="value" id="technicalScore">--</span>
+                        <span class="caption">Trend &amp; momentum</span>
+                    </div>
+                    <div class="score-card fundamental">
+                        <span class="label">Fundamental</span>
+                        <span class="value" id="fundamentalScore">--</span>
+                        <span class="caption">Quality &amp; valuation</span>
+                    </div>
+                    <div class="score-card sentiment">
+                        <span class="label">Sentiment</span>
+                        <span class="value" id="sentimentScore">--</span>
+                        <span class="caption">News &amp; tone</span>
+                    </div>
+                    <div class="score-card composite">
+                        <span class="label">Composite</span>
+                        <span class="value" id="compositeScore">--</span>
+                        <span class="caption">Weighted outlook</span>
+                    </div>
                 </div>
-                <div class="log" id="logStream"></div>
-                <div class="result" id="resultPanel">Waiting for results…</div>
+                <div class="result-shell">
+                    <div class="result-title">Market snapshot</div>
+                    <div class="result-meta" id="resultMeta">
+                        <span>Waiting for ticker…</span>
+                    </div>
+                    <div class="result-grid" id="resultHighlights"></div>
+                    <div class="result-body" id="resultPanel">Waiting for results…</div>
+                </div>
                 <div class="ai-section" id="aiSection">
                     <h3>AI Deep Analysis</h3>
                     <div class="ai-stream" id="aiStream"></div>
                 </div>
-            </section>
-        </div>
-    </div>
+                <div class="meta-panel">
+                    <div class="meta-card">
+                        <span class="meta-label">Technical lookback</span>
+                        <span class="meta-value">{{ ui.get('analysis', {}).get('technical_days') or 'Configurable' }} days</span>
+                    </div>
+                    <div class="meta-card">
+                        <span class="meta-label">News limit</span>
+                        <span class="meta-value">{{ ui.get('analysis', {}).get('news_limit') or 'Configurable' }} articles</span>
+                    </div>
+                    {% if ai.get('configured_keys') %}
+                    <div class="meta-card">
+                        <span class="meta-label">Active AI keys</span>
+                        <span class="meta-value">{{ ai.get('configured_keys')|join(', ') }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+    </main>
 <script>
 (function () {
     var DEFAULT_MARKET = 'us_stock';
@@ -387,12 +937,26 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         return 'N/A';
     }
 
+    function formatInteger(value) {
+        if (typeof value === 'number' && !isNaN(value)) {
+            return Math.round(value).toLocaleString();
+        }
+        return 'N/A';
+    }
+
+    function buildHighlight(label, value) {
+        return '<div class="result-item"><div class="result-label">' + label + '</div><div class="result-value">' + value + '</div></div>';
+    }
+
     function showResult(report) {
         currentReport = report;
-        var container = document.getElementById('resultPanel');
-        if (!container) {
+        var summaryPanel = document.getElementById('resultPanel');
+        var metaPanel = document.getElementById('resultMeta');
+        var highlightPanel = document.getElementById('resultHighlights');
+        if (!summaryPanel) {
             return;
         }
+
         var market = report && report.market_info ? report.market_info : {};
         var stockName = report && report.stock_name ? report.stock_name : 'Unknown';
         var stockCode = report && report.stock_code ? report.stock_code : '';
@@ -400,16 +964,53 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         var priceInfo = report && report.price_info ? report.price_info : {};
         var recommendation = report && report.recommendation ? report.recommendation : 'N/A';
         var scores = report && report.scores ? report.scores : {};
+        var dataQuality = report && report.data_quality ? report.data_quality : {};
 
-        var html = '';
-        html += '<h3 style="margin-top:0;">' + stockName + (stockCode ? ' (' + stockCode + ')' : '') + '</h3>';
-        html += '<p><strong>Market:</strong> ' + (market.name || 'U.S. equities') + ' · ' + currency + '</p>';
-        html += '<p><strong>Current price:</strong> ' + safeNumber(priceInfo.current_price) + ' ' + currency +
-            ' · <strong>Change:</strong> ' + safeNumber(priceInfo.price_change) + '%</p>';
-        html += '<p><strong>Recommendation:</strong> ' + recommendation + '</p>';
-        html += '<pre style="background:#fff;border-radius:10px;padding:12px;overflow:auto;">' +
-            JSON.stringify(scores, null, 2) + '</pre>';
-        container.innerHTML = html;
+        if (metaPanel) {
+            var metaParts = [];
+            metaParts.push('<span><strong>Market:</strong> ' + (market.name || 'U.S. equities') + '</span>');
+            metaParts.push('<span><strong>Currency:</strong> ' + currency + '</span>');
+            if (market.timezone) {
+                metaParts.push('<span><strong>Timezone:</strong> ' + market.timezone + '</span>');
+            }
+            metaParts.push('<span><strong>Generated:</strong> ' + (report.analysis_date || new Date().toLocaleString()) + '</span>');
+            metaPanel.innerHTML = metaParts.join('');
+        }
+
+        if (highlightPanel) {
+            var highlights = '';
+            var priceValue = safeNumber(priceInfo.current_price);
+            if (priceValue !== 'N/A') {
+                priceValue += ' ' + currency;
+            }
+            highlights += buildHighlight('Last close', priceValue);
+
+            var changeValue = safeNumber(priceInfo.price_change);
+            if (changeValue !== 'N/A') {
+                changeValue += '%';
+            }
+            highlights += buildHighlight('Daily change', changeValue);
+
+            if (dataQuality.financial_indicators_count !== undefined) {
+                highlights += buildHighlight('Financial indicators', formatInteger(dataQuality.financial_indicators_count));
+            }
+            if (dataQuality.total_news_count !== undefined) {
+                highlights += buildHighlight('News items analysed', formatInteger(dataQuality.total_news_count));
+            }
+            highlightPanel.innerHTML = highlights;
+        }
+
+        var compositeScore = formatScore(scores.comprehensive);
+        var technicalScore = formatScore(scores.technical);
+        var fundamentalScore = formatScore(scores.fundamental);
+        var sentimentScore = formatScore(scores.sentiment);
+
+        var summaryHtml = '';
+        summaryHtml += '<p><strong>' + stockName + (stockCode ? ' (' + stockCode + ')' : '') + '</strong> · Recommendation: ' + recommendation + '</p>';
+        summaryHtml += '<p><strong>Scorecard:</strong> Technical ' + technicalScore + ' · Fundamental ' + fundamentalScore + ' · Sentiment ' + sentimentScore + ' · Composite ' + compositeScore + '</p>';
+        summaryHtml += '<p><strong>Analysis date:</strong> ' + (report.analysis_date || new Date().toLocaleString()) + '</p>';
+
+        summaryPanel.innerHTML = summaryHtml;
 
         var aiPanel = document.getElementById('aiStream');
         var aiSection = document.getElementById('aiSection');
@@ -455,6 +1056,8 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         var batch = document.getElementById('batchSymbols');
         var logPanel = document.getElementById('logStream');
         var resultPanel = document.getElementById('resultPanel');
+        var metaPanel = document.getElementById('resultMeta');
+        var highlightPanel = document.getElementById('resultHighlights');
         if (single) {
             single.value = '';
         }
@@ -466,6 +1069,12 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
         if (resultPanel) {
             resultPanel.textContent = 'Waiting for results…';
+        }
+        if (metaPanel) {
+            metaPanel.innerHTML = '<span>Waiting for ticker…</span>';
+        }
+        if (highlightPanel) {
+            highlightPanel.innerHTML = '';
         }
         updateScores({});
         resetAI();
@@ -836,7 +1445,10 @@ def logout():
 @require_auth
 def index():
     enabled, _ = _auth_config()
-    return render_template_string(MAIN_TEMPLATE, auth_enabled=enabled)
+    ui_context = analyzer.get_ui_context() if analyzer else {}
+    return render_template_string(
+        MAIN_TEMPLATE, auth_enabled=enabled, ui_context=ui_context
+    )
 
 
 @app.route("/api/sse")

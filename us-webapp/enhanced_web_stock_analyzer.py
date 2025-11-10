@@ -22,7 +22,7 @@ import math
 import os
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -248,6 +248,95 @@ class EnhancedWebStockAnalyzer:
             setattr(market, "enabled", value.get("enabled", True))
 
         return market
+
+    def get_ui_context(self) -> Dict[str, Any]:
+        """Expose configuration highlights for the web dashboard."""
+
+        streaming_enabled = bool(self.streaming_config.get("enabled", True))
+        streaming_delay = float(self.streaming_config.get("delay", 0.0) or 0.0)
+        show_thinking = bool(self.streaming_config.get("show_thinking", False))
+
+        ai_config = self.config.get("ai", {})
+        api_keys = {
+            key: value
+            for key, value in self.api_keys.items()
+            if key not in {"notes"}
+        }
+        configured_keys = [key for key, value in api_keys.items() if value]
+        model_preference = ai_config.get("model_preference", "openai")
+        models = ai_config.get("models", {})
+        preferred_model = models.get(model_preference, model_preference)
+
+        enabled_markets: List[Dict[str, str]] = []
+        for code, value in self.market_config.items():
+            if not value.get("enabled", False):
+                continue
+            enabled_markets.append(
+                {
+                    "code": code,
+                    "name": value.get("name") or code,
+                    "currency": value.get("currency", ""),
+                    "timezone": value.get("timezone", ""),
+                    "trading_hours": value.get("trading_hours", ""),
+                }
+            )
+
+        if enabled_markets:
+            primary = enabled_markets[0]
+            market_summary = " · ".join(
+                filter(
+                    None,
+                    [
+                        primary.get("name"),
+                        primary.get("currency"),
+                        primary.get("timezone"),
+                    ],
+                )
+            )
+        else:
+            market_summary = "No markets enabled"
+
+        weight_parts: List[str] = []
+        for label, weight in self.analysis_weights.items():
+            if isinstance(weight, (int, float)):
+                weight_parts.append(f"{label.title()} {weight * 100:.0f}%")
+        weight_summary = " · ".join(weight_parts)
+
+        cache_parts: List[str] = []
+        if isinstance(self.cache_config.get("price_hours"), (int, float)):
+            cache_parts.append(f"Prices {self.cache_config['price_hours']}h")
+        if isinstance(self.cache_config.get("fundamental_hours"), (int, float)):
+            cache_parts.append(
+                f"Fundamentals {self.cache_config['fundamental_hours']}h"
+            )
+        if isinstance(self.cache_config.get("news_hours"), (int, float)):
+            cache_parts.append(f"News {self.cache_config['news_hours']}h")
+        cache_summary = " · ".join(cache_parts)
+
+        technical_days = self.analysis_params.get("technical_period_days")
+        news_limit = self.analysis_params.get("max_news_count")
+
+        return {
+            "streaming": {
+                "enabled": streaming_enabled,
+                "delay": streaming_delay,
+                "show_thinking": show_thinking,
+            },
+            "ai": {
+                "preference": model_preference,
+                "model": preferred_model,
+                "has_keys": bool(configured_keys),
+                "configured_keys": configured_keys,
+            },
+            "markets": enabled_markets,
+            "market_summary": market_summary,
+            "weights": weight_summary,
+            "cache": cache_summary,
+            "analysis": {
+                "technical_days": technical_days,
+                "news_limit": news_limit,
+            },
+        }
 
     # ------------------------------------------------------------------
     # Market helpers
