@@ -114,6 +114,13 @@ class EnhancedWebStockAnalyzer:
         self._news_cache: Dict[str, Tuple[datetime, Dict[str, List[dict]]]] = {}
         self._profile_cache: Dict[str, Dict[str, Any]] = {}
         self._sentiment_analyzer: Optional[SentimentIntensityAnalyzer] = None
+        self._http_headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/119.0 Safari/537.36"
+            )
+        }
 
         self._log_config_summary()
 
@@ -395,6 +402,109 @@ class EnhancedWebStockAnalyzer:
         if math.isnan(numeric) or math.isinf(numeric):
             return None
         return numeric
+
+    def _http_get(self, url: str, *, params: Optional[Dict[str, Any]] = None, timeout: float = 6.0) -> Response:
+        """Wrapper around ``requests.get`` with shared headers and short timeouts."""
+
+        return requests.get(url, params=params, headers=self._http_headers, timeout=timeout)
+
+    def _collect_yf_statements(self, ticker_instance: Any) -> Dict[str, Optional[pd.DataFrame]]:
+        """Download yfinance statements with defensive fallbacks."""
+
+        statements = {"income": None, "balance": None, "cashflow": None}
+
+        def _maybe_call(attr_name: str) -> Optional[pd.DataFrame]:
+            target = getattr(ticker_instance, attr_name, None)
+            if callable(target):
+                try:  # pragma: no cover - network dependent
+                    return target()
+                except Exception:
+                    return None
+            return target
+
+        statements["income"] = _maybe_call("get_income_stmt") or _maybe_call("income_stmt")
+        statements["balance"] = _maybe_call("get_balance_sheet") or _maybe_call("balance_sheet")
+        statements["cashflow"] = _maybe_call("get_cashflow") or _maybe_call("cashflow")
+        if isinstance(statements["income"], dict):
+            statements["income"] = pd.DataFrame(statements["income"])
+        if isinstance(statements["balance"], dict):
+            statements["balance"] = pd.DataFrame(statements["balance"])
+        if isinstance(statements["cashflow"], dict):
+            statements["cashflow"] = pd.DataFrame(statements["cashflow"])
+        return statements
+
+    def _fetch_yahoo_quote_summary(self, stock_code: str) -> Tuple[Dict[str, float], List[str]]:
+        """Lightweight fallback that scrapes Yahoo Finance quoteSummary endpoints."""
+
+        params = {
+            "modules": "financialData,defaultKeyStatistics,summaryDetail,price",
+        }
+        warnings: List[str] = []
+        try:  # pragma: no cover - network dependent
+            response = self._http_get(
+                f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{stock_code}",
+                params=params,
+            )
+        except RequestException as exc:
+            warnings.append(f"Yahoo quoteSummary request failed: {exc}")
+            return {}, warnings
+
+        if response.status_code == 429:
+            warnings.append("Yahoo quoteSummary rate limit exceeded")
+            return {}, warnings
+
+        try:
+            response.raise_for_status()
+        except RequestException as exc:
+            warnings.append(f"Yahoo quoteSummary error: {exc}")
+            return {}, warnings
+
+        payload = response.json()
+        result = payload.get("quoteSummary", {}).get("result")
+        if not result:
+            warnings.append("Yahoo quoteSummary returned no data")
+            return {}, warnings
+
+        node = result[0]
+        fundamentals: Dict[str, float] = {}
+
+        def _pull(section: str, key: str) -> Optional[float]:
+            section_data = node.get(section) or {}
+            value = section_data.get(key) if isinstance(section_data, dict) else {}
+            if isinstance(value, dict) and "raw" in value:
+                value = value["raw"]
+            return self._safe_numeric(value)
+
+        price_value = _pull("price", "regularMarketPrice") or _pull("financialData", "currentPrice")
+        eps = _pull("defaultKeyStatistics", "trailingEps")
+        if price_value and eps and eps != 0:
+            fundamentals["pe_ratio"] = price_value / eps
+            fundamentals.setdefault("eps", eps)
+        peg = _pull("defaultKeyStatistics", "pegRatio")
+        if peg is not None:
+            fundamentals["peg_ratio"] = peg
+        roe = _pull("financialData", "returnOnEquity")
+        if roe is not None:
+            fundamentals["roe"] = roe * 100.0 if abs(roe) <= 10 else roe
+        net_margin = _pull("financialData", "profitMargins")
+        if net_margin is not None:
+            fundamentals["net_margin"] = net_margin * 100.0 if abs(net_margin) <= 10 else net_margin
+        operating_margin = _pull("financialData", "operatingMargins")
+        if operating_margin is not None:
+            fundamentals["operating_margin"] = (
+                operating_margin * 100.0 if abs(operating_margin) <= 10 else operating_margin
+            )
+        revenue_growth = _pull("financialData", "revenueGrowth")
+        if revenue_growth is not None:
+            fundamentals["revenue_growth"] = revenue_growth * 100.0 if abs(revenue_growth) <= 10 else revenue_growth
+        debt_to_equity = _pull("financialData", "debtToEquity")
+        if debt_to_equity is not None:
+            fundamentals["debt_to_equity"] = debt_to_equity
+        current_ratio = _pull("financialData", "currentRatio")
+        if current_ratio is not None:
+            fundamentals["current_ratio"] = current_ratio
+
+        return fundamentals, warnings
 
     def _extract_statement_value(
         self, statement: Optional[pd.DataFrame], candidates: Iterable[str]
@@ -727,7 +837,6 @@ class EnhancedWebStockAnalyzer:
             provider_warnings.append("yfinance package is not installed.")
             return fundamentals, source_name, provider_warnings
 
-        ticker_instance = None
         try:  # pragma: no cover - network dependent
             ticker_instance = yf.Ticker(stock_code)
         except Exception as exc:
@@ -736,22 +845,41 @@ class EnhancedWebStockAnalyzer:
             return fundamentals, source_name, provider_warnings
 
         info_sources: List[Tuple[Dict[str, Any], str]] = []
+        statements: Dict[str, Optional[pd.DataFrame]] = {"income": None, "balance": None, "cashflow": None}
+        earnings_dates: Optional[pd.DataFrame] = None
 
-        # ``get_info`` remains the richest dataset but may raise for some tickers.
-        try:  # pragma: no cover - network dependent
-            raw_info = ticker_instance.get_info() or {}
-            if raw_info:
-                info_sources.append((raw_info, "get_info"))
-        except Exception as exc:
-            provider_warnings.append(f"yfinance get_info unavailable: {exc}")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {
+                "info": pool.submit(lambda: ticker_instance.get_info() or {}),
+                "fast": pool.submit(lambda: getattr(ticker_instance, "fast_info", {}) or {}),
+                "statements": pool.submit(self._collect_yf_statements, ticker_instance),
+                "earnings": pool.submit(
+                    lambda: (
+                        getattr(ticker_instance, "get_earnings_dates", lambda limit=8: None)(limit=8)
+                        if hasattr(ticker_instance, "get_earnings_dates")
+                        else None
+                    )
+                ),
+            }
 
-        # ``fast_info`` provides lightweight metrics without the legacy endpoint.
-        fast_info = getattr(ticker_instance, "fast_info", None)
-        if fast_info:
-            if isinstance(fast_info, dict):
-                info_sources.append((fast_info, "fast_info"))
-            else:
-                info_sources.append((fast_info.__dict__, "fast_info"))
+            for label, future in futures.items():
+                try:  # pragma: no cover - network dependent
+                    result = future.result(timeout=8)
+                except Exception as exc:
+                    provider_warnings.append(f"yfinance {label} retrieval failed: {exc}")
+                    continue
+
+                if label == "info" and isinstance(result, dict):
+                    info_sources.append((result, "get_info"))
+                elif label == "fast" and result:
+                    if isinstance(result, dict):
+                        info_sources.append((result, "fast_info"))
+                    else:
+                        info_sources.append((getattr(result, "__dict__", {}), "fast_info"))
+                elif label == "statements" and isinstance(result, dict):
+                    statements.update(result)
+                elif label == "earnings" and isinstance(result, (pd.DataFrame, dict)):
+                    earnings_dates = result if isinstance(result, pd.DataFrame) else pd.DataFrame(result)
 
         mapping = {
             "trailingPE": "pe_ratio",
@@ -781,127 +909,123 @@ class EnhancedWebStockAnalyzer:
             "operatingMargins",
         }
 
+        last_price = None
         for source_dict, source_label in info_sources:
+            if not isinstance(source_dict, dict):
+                continue
+            if last_price is None:
+                for price_key in ("lastPrice", "last_price", "regularMarketPrice", "regular_market_price"):
+                    price_value = self._safe_numeric(source_dict.get(price_key))
+                    if price_value is not None:
+                        last_price = price_value
+                        break
             for source_key, target_key in mapping.items():
                 if target_key in fundamentals:
                     continue
                 numeric_value = self._safe_numeric(source_dict.get(source_key))
                 if numeric_value is None:
                     continue
-                if source_key in percentage_keys:
+                if source_key in percentage_keys and abs(numeric_value) <= 10:
                     numeric_value *= 100.0
                 fundamentals[target_key] = numeric_value
                 source_name = "yfinance"
 
-        # Attempt to derive additional ratios from financial statements if basic info failed.
+        if last_price is None:
+            price_candidates = [
+                source_dict.get("regularMarketPrice")
+                for source_dict, _ in info_sources
+                if isinstance(source_dict, dict)
+            ]
+            for candidate in price_candidates:
+                numeric = self._safe_numeric(candidate)
+                if numeric is not None:
+                    last_price = numeric
+                    break
+
+        income_stmt = statements.get("income")
+        balance_sheet = statements.get("balance")
+        cashflow_stmt = statements.get("cashflow")
+
+        revenue_current = self._extract_statement_value(
+            income_stmt, ["Total Revenue", "totalRevenue", "TotalRevenue"]
+        )
+        revenue_prev = None
+        if isinstance(income_stmt, pd.DataFrame) and not income_stmt.empty:
+            normalized_index = {str(idx).strip().lower(): idx for idx in income_stmt.index}
+            for candidate in ("total revenue", "totalRevenue"):
+                lookup = candidate.lower()
+                if lookup in normalized_index:
+                    row = income_stmt.loc[normalized_index[lookup]]
+                    if isinstance(row, pd.Series) and row.size > 1:
+                        revenue_prev = self._safe_numeric(row.iloc[1])
+                    break
+
+        net_income_current = self._extract_statement_value(
+            income_stmt, ["Net Income", "netIncome", "NetIncome"]
+        )
+        equity = self._extract_statement_value(
+            balance_sheet,
+            [
+                "Total Stockholder Equity",
+                "totalStockholderEquity",
+                "Total Equity Gross Minority Interest",
+            ],
+        )
+        total_assets = self._extract_statement_value(
+            balance_sheet, ["Total Assets", "totalAssets"]
+        )
+        current_assets = self._extract_statement_value(
+            balance_sheet,
+            ["Total Current Assets", "totalCurrentAssets", "Current Assets"],
+        )
+        current_liabilities = self._extract_statement_value(
+            balance_sheet,
+            ["Total Current Liabilities", "totalCurrentLiabilities", "Current Liabilities"],
+        )
+        free_cash_flow = self._extract_statement_value(
+            cashflow_stmt,
+            ["Free Cash Flow", "freeCashFlow", "Free Cash Flow Net Income"],
+        )
+
+        if revenue_current is not None:
+            fundamentals.setdefault("revenue", revenue_current)
+        if net_income_current is not None:
+            fundamentals.setdefault("net_income", net_income_current)
+        if equity not in (None, 0) and net_income_current is not None:
+            fundamentals.setdefault("roe", (net_income_current / equity) * 100.0)
+        if total_assets not in (None, 0) and net_income_current is not None:
+            fundamentals.setdefault("roa", (net_income_current / total_assets) * 100.0)
+        if free_cash_flow is not None:
+            fundamentals.setdefault("free_cash_flow", free_cash_flow)
+        if revenue_current is not None and revenue_prev is not None:
+            growth = self._compute_growth(revenue_current, revenue_prev)
+            if growth is not None:
+                fundamentals.setdefault("revenue_growth", growth)
+        if current_assets is not None and current_liabilities not in (None, 0):
+            fundamentals.setdefault("current_ratio", current_assets / current_liabilities)
+        if equity not in (None, 0) and total_assets is not None:
+            fundamentals.setdefault("debt_to_equity", (total_assets - equity) / equity)
+
+        if earnings_dates is not None and not getattr(earnings_dates, "empty", False):
+            try:
+                if isinstance(earnings_dates, pd.DataFrame):
+                    latest_eps = earnings_dates.get("epsActual")
+                    if isinstance(latest_eps, pd.Series) and not latest_eps.empty:
+                        eps_actual = self._safe_numeric(latest_eps.iloc[0])
+                        if eps_actual is not None:
+                            fundamentals.setdefault("eps", eps_actual)
+            except Exception:
+                provider_warnings.append("Unable to parse yfinance earnings history")
+
+        if "pe_ratio" not in fundamentals and last_price and fundamentals.get("eps") not in (None, 0):
+            fundamentals["pe_ratio"] = last_price / fundamentals["eps"]
+
         if not fundamentals:
-            try:  # pragma: no cover - network dependent
-                financials = None
-                getter = getattr(ticker_instance, "get_financials", None)
-                if callable(getter):
-                    financials = getter()
-                elif hasattr(ticker_instance, "financials"):
-                    financials = ticker_instance.financials
-
-                if isinstance(financials, pd.DataFrame) and not financials.empty:
-                    revenue_series = self._extract_statement_value(
-                        financials, ["Total Revenue", "totalRevenue"]
-                    )
-                    net_income_series = self._extract_statement_value(
-                        financials, ["Net Income", "netIncome"]
-                    )
-                    if revenue_series is not None:
-                        fundamentals["revenue"] = revenue_series
-                    if net_income_series is not None:
-                        fundamentals["net_income"] = net_income_series
-                        if revenue_series:
-                            fundamentals.setdefault(
-                                "net_margin",
-                                (net_income_series / revenue_series) * 100.0
-                                if revenue_series
-                                else None,
-                            )
-                    if fundamentals:
-                        source_name = "yfinance-financials"
-            except Exception as exc:
-                provider_warnings.append(f"yfinance financial statement fetch failed: {exc}")
-
-        # Supplement metrics using detailed statements even when base info succeeded.
-        try:  # pragma: no cover - network dependent
-            income_stmt = None
-            balance_sheet = None
-            cashflow_stmt = None
-            ticker_for_statements = ticker_instance
-            if ticker_for_statements is None and yf is not None:
-                ticker_for_statements = yf.Ticker(stock_code)
-
-            if ticker_for_statements is not None:
-                getter_income = getattr(ticker_for_statements, "get_income_stmt", None)
-                getter_balance = getattr(ticker_for_statements, "get_balance_sheet", None)
-                getter_cash = getattr(ticker_for_statements, "get_cashflow", None)
-                income_stmt = (
-                    getter_income() if callable(getter_income) else getattr(ticker_for_statements, "income_stmt", None)
-                )
-                balance_sheet = (
-                    getter_balance() if callable(getter_balance) else getattr(ticker_for_statements, "balance_sheet", None)
-                )
-                cashflow_stmt = (
-                    getter_cash() if callable(getter_cash) else getattr(ticker_for_statements, "cashflow", None)
-                )
-
-            revenue_current = self._extract_statement_value(
-                income_stmt, ["Total Revenue", "totalRevenue"]
-            )
-            revenue_prev = None
-            if isinstance(income_stmt, pd.DataFrame) and not income_stmt.empty:
-                normalized_index = {
-                    str(idx).strip().lower(): idx for idx in income_stmt.index
-                }
-                for candidate in ("total revenue", "totalRevenue"):
-                    lookup = candidate.lower()
-                    if lookup in normalized_index:
-                        row = income_stmt.loc[normalized_index[lookup]]
-                        if isinstance(row, pd.Series) and row.size > 1:
-                            revenue_prev = self._safe_numeric(row.iloc[1])
-                        break
-
-            net_income_current = self._extract_statement_value(
-                income_stmt, ["Net Income", "netIncome"]
-            )
-            equity = self._extract_statement_value(
-                balance_sheet,
-                [
-                    "Total Stockholder Equity",
-                    "totalStockholderEquity",
-                    "Total Equity Gross Minority Interest",
-                ],
-            )
-            total_assets = self._extract_statement_value(
-                balance_sheet, ["Total Assets", "totalAssets"]
-            )
-            free_cash_flow = self._extract_statement_value(
-                cashflow_stmt,
-                ["Free Cash Flow", "freeCashFlow", "Free Cash Flow Net Income"],
-            )
-
-            if revenue_current is not None:
-                fundamentals.setdefault("revenue", revenue_current)
-            if net_income_current is not None:
-                fundamentals.setdefault("net_income", net_income_current)
-            if equity is not None and net_income_current is not None:
-                fundamentals.setdefault("roe", (net_income_current / equity) * 100.0 if equity else None)
-            if total_assets is not None and net_income_current is not None:
-                fundamentals.setdefault(
-                    "roa", (net_income_current / total_assets) * 100.0 if total_assets else None
-                )
-            if free_cash_flow is not None:
-                fundamentals.setdefault("free_cash_flow", free_cash_flow)
-            if revenue_current is not None and revenue_prev is not None:
-                growth = self._compute_growth(revenue_current, revenue_prev)
-                if growth is not None:
-                    fundamentals.setdefault("revenue_growth", growth)
-        except Exception as exc:
-            provider_warnings.append(f"Extended yfinance statement parse failed: {exc}")
+            quote_summary, summary_warnings = self._fetch_yahoo_quote_summary(stock_code)
+            fundamentals.update(quote_summary)
+            provider_warnings.extend(summary_warnings)
+            if fundamentals:
+                source_name = "yahoo-quote"
 
         if fundamentals and not source_name:
             source_name = "yfinance"
@@ -1026,124 +1150,88 @@ class EnhancedWebStockAnalyzer:
             "research_reports": [],
         }
 
+        provider_payloads: Dict[str, Dict[str, List[dict]]] = {}
+        provider_warnings: List[str] = []
         sources_used: List[str] = []
-        fallback_required = False
+        providers_attempted: List[str] = []
 
-        if self.api_keys.get("finnhub"):
-            try:  # pragma: no cover - network dependent
-                finnhub_payload = self._fetch_finnhub_company_news(
-                    stock_code, start_date, end_date, max_items
-                )
-                for key, values in finnhub_payload.items():
-                    aggregated[key].extend(values)
-                if sum(len(values) for values in finnhub_payload.values()):
-                    sources_used.append("Finnhub")
-                else:
-                    fallback_required = True
-            except RateLimitError as exc:
-                fallback_required = True
-                logger.warning(
-                    "Finnhub rate limit while fetching news for %s: %s", stock_code, exc
-                )
-            except NewsProviderError as exc:
-                fallback_required = True
-                logger.warning(
-                    "Finnhub news download failed for %s: %s", stock_code, exc
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                fallback_required = True
-                logger.exception(
-                    "Unexpected Finnhub error for %s: %s", stock_code, exc
-                )
-        else:
-            fallback_required = True
-            logger.debug("Finnhub API key missing; skipping Finnhub news fetch")
+        def _submit_news_job(pool, provider_name, func):
+            providers_attempted.append(provider_name)
+            return provider_name, pool.submit(func)
 
-        should_try_newsdata = self.api_keys.get("newsdata") and (
-            fallback_required or not sum(len(values) for values in aggregated.values())
-        )
+        futures: List[Tuple[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            if self.api_keys.get("finnhub"):
+                futures.append(
+                    _submit_news_job(
+                        pool,
+                        "Finnhub",
+                        lambda: self._fetch_finnhub_company_news(
+                            stock_code, start_date, end_date, max_items
+                        ),
+                    )
+                )
+            if self.api_keys.get("newsdata"):
+                futures.append(
+                    _submit_news_job(
+                        pool,
+                        "NewsData.io",
+                        lambda: self._fetch_newsdata_company_news(
+                            stock_code, start_date, end_date, max_items
+                        ),
+                    )
+                )
 
-        if should_try_newsdata:
-            try:  # pragma: no cover - network dependent
-                newsdata_payload = self._fetch_newsdata_company_news(
-                    stock_code, start_date, end_date, max_items
-                )
-                for key, values in newsdata_payload.items():
-                    aggregated[key].extend(values)
-                if sum(len(values) for values in newsdata_payload.values()):
-                    sources_used.append("NewsData.io")
-            except RateLimitError as exc:
-                logger.warning(
-                    "NewsData.io rate limit while fetching news for %s: %s", stock_code, exc
-                )
-            except NewsProviderError as exc:
-                logger.warning(
-                    "NewsData.io news download failed for %s: %s", stock_code, exc
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.exception(
-                    "Unexpected NewsData.io error for %s: %s", stock_code, exc
-                )
-        elif not self.api_keys.get("newsdata"):
-            logger.debug("NewsData.io API key missing; skipping NewsData.io fallback")
+            for provider_name, future in futures:
+                try:  # pragma: no cover - network dependent
+                    payload = future.result()
+                    provider_payloads[provider_name] = payload
+                except RateLimitError as exc:
+                    provider_warnings.append(f"{provider_name} rate limit: {exc}")
+                except NewsProviderError as exc:
+                    provider_warnings.append(f"{provider_name} error: {exc}")
+                except Exception as exc:  # pragma: no cover - defensive
+                    provider_warnings.append(f"{provider_name} unexpected error: {exc}")
 
-        aggregated = {
-            key: self._deduplicate_news_items(values, max_items)
-            for key, values in aggregated.items()
-        }
+        primary_payload = provider_payloads.get("Finnhub")
+        if primary_payload and sum(len(values) for values in primary_payload.values()):
+            for key in aggregated:
+                aggregated[key].extend(primary_payload.get(key, []))
+            sources_used.append("Finnhub")
+        elif "Finnhub" in providers_attempted and "Finnhub" not in provider_payloads:
+            provider_warnings.append("Finnhub did not return any articles for this ticker.")
+
+        secondary_payload = provider_payloads.get("NewsData.io")
+        if secondary_payload:
+            added = False
+            for key in aggregated:
+                before = len(aggregated[key])
+                aggregated[key].extend(secondary_payload.get(key, []))
+                if len(aggregated[key]) > before:
+                    added = True
+            if added:
+                sources_used.append("NewsData.io")
+        elif self.api_keys.get("newsdata") and "NewsData.io" not in providers_attempted:
+            provider_warnings.append("NewsData.io API key configured but request was not attempted.")
+
+        for bucket in list(aggregated.keys()):
+            aggregated[bucket] = self._deduplicate_news_items(aggregated[bucket], max_items)
 
         metadata = {
             "sources": sources_used,
             "retrieved_at": datetime.utcnow().isoformat(),
-            "fallback_used": fallback_required,
+            "warnings": provider_warnings,
+            "attempted": providers_attempted,
         }
 
-        total_items = sum(len(values) for values in aggregated.values())
-        if total_items:
-            logger.info(
-                "Fetched %s news articles for %s via %s",
-                total_items,
-                stock_code,
-                ", ".join(sources_used) if sources_used else "cache",
-            )
-        else:
-            logger.info(
-                "No recent news items found for %s. Providers attempted: %s",
-                stock_code,
-                ", ".join(sources_used) if sources_used else "none",
+        if not any(len(items) for items in aggregated.values()):
+            metadata.setdefault("warnings", []).append(
+                "No news providers returned articles during this window."
             )
 
-        result = dict(aggregated)
-        result["metadata"] = metadata
-
-        self._news_cache[stock_code] = (datetime.now(), result)
-        return result
-
-    def _deduplicate_news_items(
-        self, items: List[Dict[str, Any]], limit: int
-    ) -> List[Dict[str, Any]]:
-        """Remove duplicate stories and enforce the configured limit."""
-
-        if not items:
-            return []
-
-        seen: set[str] = set()
-        cleaned: List[Dict[str, Any]] = []
-        for item in sorted(
-            items,
-            key=lambda entry: entry.get("published_at") or "",
-            reverse=True,
-        ):
-            unique_key = item.get("url") or (
-                f"{item.get('title', '')}|{item.get('published_at', '')}"
-            )
-            if unique_key in seen:
-                continue
-            seen.add(unique_key)
-            cleaned.append(item)
-            if len(cleaned) >= limit:
-                break
-        return cleaned
+        payload = {**aggregated, "metadata": metadata}
+        self._news_cache[stock_code] = (datetime.now(), payload)
+        return payload
 
     def _standardize_news_item(
         self,
@@ -1215,7 +1303,7 @@ class EnhancedWebStockAnalyzer:
         }
 
         url = "https://finnhub.io/api/v1/company-news"
-        response: Response = requests.get(url, params=params, timeout=10)
+        response: Response = self._http_get(url, params=params, timeout=6)
         if response.status_code == 429:
             raise RateLimitError("Finnhub rate limit exceeded")
         if response.status_code >= 500:
@@ -1290,7 +1378,7 @@ class EnhancedWebStockAnalyzer:
         }
 
         url = "https://newsdata.io/api/1/news"
-        response: Response = requests.get(url, params=params, timeout=10)
+        response: Response = self._http_get(url, params=params, timeout=6)
         if response.status_code == 429:
             raise RateLimitError("NewsData.io rate limit exceeded")
         if response.status_code >= 500:

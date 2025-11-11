@@ -10,10 +10,11 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
 
 - 🇺🇸 **U.S.-first market support** – A-share and Hong Kong pipelines are disabled by default.
 - 🌊 **Live SSE streaming** – watch technical calculations, sentiment pulls, and AI commentary arrive in real time.
+- 🎨 **Material Design 3 UI** – refreshed cards, buttons, and typography built with Material You tokens for cohesive visuals.
 - 🤖 **Multi-LLM adapters** – switch between OpenAI, Anthropic, and Zhipu endpoints from `config.json`.
 - 🧮 **Weighted scoring** – blend technical, fundamental, and sentiment grades into a 0–100 composite.
 - 🗂️ **Batch workflows** – submit multiple tickers and receive independent streamed results.
-- 📈 **Modern U.S. data feeds** – downloads prices and fundamentals from Yahoo Finance via `yfinance`, with automatic Stooq and akshare fallbacks.
+- 📈 **Modern U.S. data feeds** – downloads prices and fundamentals from Yahoo Finance via `yfinance`, with automatic Stooq and akshare fallbacks plus a direct Yahoo quoteSummary bridge when the SDK yields sparse data.
 - 🛟 **Data quality call-outs** – the dashboard surfaces missing fundamentals, empty news feeds, or provider warnings so you immediately know when an input needs attention.
 - 💬 **Analyst follow-up chat** – ask real-time questions about the streamed report; responses reuse the full scorecard and data-quality context.
 - ⚡ **Parallelised data pulls** – price, fundamentals, and news downloads run concurrently to minimise waiting time before scores appear.
