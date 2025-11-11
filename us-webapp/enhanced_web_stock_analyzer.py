@@ -22,7 +22,7 @@ import math
 import os
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -39,6 +39,11 @@ try:  # pragma: no cover - optional dependency
     import akshare as ak
 except ImportError:  # pragma: no cover - optional dependency
     ak = None
+
+try:  # pragma: no cover - optional dependency
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+except ImportError:  # pragma: no cover - optional dependency
+    SentimentIntensityAnalyzer = None
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -106,6 +111,8 @@ class EnhancedWebStockAnalyzer:
         self._price_cache: Dict[str, Tuple[datetime, pd.DataFrame]] = {}
         self._fundamental_cache: Dict[str, Tuple[datetime, Dict[str, float]]] = {}
         self._news_cache: Dict[str, Tuple[datetime, Dict[str, List[dict]]]] = {}
+        self._profile_cache: Dict[str, Dict[str, Any]] = {}
+        self._sentiment_analyzer: Optional[SentimentIntensityAnalyzer] = None
 
         self._log_config_summary()
 
@@ -350,6 +357,73 @@ class EnhancedWebStockAnalyzer:
         }
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _get_sentiment_analyzer(self) -> Optional[SentimentIntensityAnalyzer]:
+        """Return a shared VADER sentiment analyzer instance if available."""
+
+        if self._sentiment_analyzer is None and SentimentIntensityAnalyzer is not None:
+            try:  # pragma: no cover - depends on optional dependency
+                self._sentiment_analyzer = SentimentIntensityAnalyzer()
+            except Exception as exc:
+                logger.warning("Unable to initialise VADER sentiment analyzer: %s", exc)
+                self._sentiment_analyzer = None
+        return self._sentiment_analyzer
+
+    @staticmethod
+    def _estimate_keyword_sentiment(text: str) -> float:
+        """Fallback keyword-based sentiment score in case VADER is unavailable."""
+
+        lowered = text.lower()
+        positive = sum(lowered.count(token) for token in ["beat", "surge", "record", "strong", "growth"])
+        negative = sum(lowered.count(token) for token in ["miss", "slump", "weak", "lawsuit", "cut"])
+        if positive == negative:
+            return 0.0
+        total = positive + negative
+        score = (positive - negative) / max(total, 1)
+        return float(max(-1.0, min(1.0, score)))
+
+    @staticmethod
+    def _safe_numeric(value: Any) -> Optional[float]:
+        """Convert values to finite floats, returning ``None`` when invalid."""
+
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if math.isnan(numeric) or math.isinf(numeric):
+            return None
+        return numeric
+
+    def _extract_statement_value(
+        self, statement: Optional[pd.DataFrame], candidates: Iterable[str]
+    ) -> Optional[float]:
+        """Attempt to pull a numeric field from a financial statement."""
+
+        if statement is None or not isinstance(statement, pd.DataFrame) or statement.empty:
+            return None
+
+        normalized_index = {str(index).strip().lower(): index for index in statement.index}
+        for candidate in candidates:
+            lookup = candidate.strip().lower()
+            if lookup in normalized_index:
+                series = statement.loc[normalized_index[lookup]]
+                if isinstance(series, pd.Series) and not series.empty:
+                    value = series.iloc[0]
+                    numeric = self._safe_numeric(value)
+                    if numeric is not None:
+                        return numeric
+        return None
+
+    @staticmethod
+    def _compute_growth(current: Optional[float], previous: Optional[float]) -> Optional[float]:
+        """Return percentage growth given two comparable values."""
+
+        if current is None or previous in (None, 0):
+            return None
+        return ((current - previous) / abs(previous)) * 100.0
+
+    # ------------------------------------------------------------------
     # Market helpers
     # ------------------------------------------------------------------
     def detect_market(self, stock_code: str) -> str:
@@ -402,10 +476,58 @@ class EnhancedWebStockAnalyzer:
     # ------------------------------------------------------------------
     # Data acquisition
     # ------------------------------------------------------------------
+    def _fetch_company_profile(self, stock_code: str) -> Dict[str, Any]:
+        """Retrieve and cache basic company metadata such as the display name."""
+
+        cache_entry = self._profile_cache.get(stock_code)
+        if cache_entry:
+            return cache_entry
+
+        profile: Dict[str, Any] = {"symbol": stock_code}
+
+        if yf is not None:
+            try:  # pragma: no cover - network dependent
+                ticker = yf.Ticker(stock_code)
+                info = {}
+                try:
+                    info = ticker.get_info() or {}
+                except Exception as exc:
+                    logger.debug("yfinance get_info unavailable for %s: %s", stock_code, exc)
+                fast_info = getattr(ticker, "fast_info", None)
+                fast_dict = {}
+                if isinstance(fast_info, dict):
+                    fast_dict = fast_info
+                elif fast_info is not None:
+                    fast_dict = getattr(fast_info, "__dict__", {})
+
+                for source in (info, fast_dict):
+                    name = source.get("shortName") or source.get("longName")
+                    if name:
+                        profile["name"] = name
+                        break
+                if "exchange" in info:
+                    profile["exchange"] = info.get("exchange")
+            except Exception as exc:
+                logger.debug("Unable to fetch profile for %s via yfinance: %s", stock_code, exc)
+
+        if ak is not None and "name" not in profile:
+            try:  # pragma: no cover - network dependent
+                listing = ak.stock_us_spot()
+                if isinstance(listing, pd.DataFrame) and not listing.empty:
+                    match = listing[listing["代码"].str.upper() == stock_code.upper()]
+                    if not match.empty:
+                        profile["name"] = match.iloc[0]["名称"]
+            except Exception as exc:
+                logger.debug("akshare profile lookup failed for %s: %s", stock_code, exc)
+
+        self._profile_cache[stock_code] = profile
+        return profile
+
     def get_stock_name(self, stock_code: str) -> str:
         """Return a human readable name for a ticker."""
 
-        return stock_code
+        profile = self._fetch_company_profile(stock_code)
+        return profile.get("name") or stock_code
 
     def get_stock_data(self, stock_code: str, days: Optional[int] = None) -> pd.DataFrame:
         """Fetch daily historical prices for ``stock_code``."""
@@ -604,8 +726,9 @@ class EnhancedWebStockAnalyzer:
             provider_warnings.append("yfinance package is not installed.")
             return fundamentals, source_name, provider_warnings
 
+        ticker_instance = None
         try:  # pragma: no cover - network dependent
-            ticker = yf.Ticker(stock_code)
+            ticker_instance = yf.Ticker(stock_code)
         except Exception as exc:
             provider_warnings.append(f"yfinance ticker initialisation failed: {exc}")
             logger.warning("Unable to initialise yfinance ticker for %s: %s", stock_code, exc)
@@ -615,14 +738,14 @@ class EnhancedWebStockAnalyzer:
 
         # ``get_info`` remains the richest dataset but may raise for some tickers.
         try:  # pragma: no cover - network dependent
-            raw_info = ticker.get_info() or {}
+            raw_info = ticker_instance.get_info() or {}
             if raw_info:
                 info_sources.append((raw_info, "get_info"))
         except Exception as exc:
             provider_warnings.append(f"yfinance get_info unavailable: {exc}")
 
         # ``fast_info`` provides lightweight metrics without the legacy endpoint.
-        fast_info = getattr(ticker, "fast_info", None)
+        fast_info = getattr(ticker_instance, "fast_info", None)
         if fast_info:
             if isinstance(fast_info, dict):
                 info_sources.append((fast_info, "fast_info"))
@@ -647,26 +770,24 @@ class EnhancedWebStockAnalyzer:
             "currentRatio": "current_ratio",
         }
 
+        percentage_keys = {
+            "returnOnEquity",
+            "revenueGrowth",
+            "earningsGrowth",
+            "earningsQuarterlyGrowth",
+            "profitMargins",
+            "grossMargins",
+            "operatingMargins",
+        }
+
         for source_dict, source_label in info_sources:
             for source_key, target_key in mapping.items():
                 if target_key in fundamentals:
                     continue
-                value = source_dict.get(source_key)
-                if value is None:
+                numeric_value = self._safe_numeric(source_dict.get(source_key))
+                if numeric_value is None:
                     continue
-                try:
-                    numeric_value = float(value)
-                except (TypeError, ValueError):
-                    continue
-                if source_key in {
-                    "returnOnEquity",
-                    "revenueGrowth",
-                    "earningsGrowth",
-                    "earningsQuarterlyGrowth",
-                    "profitMargins",
-                    "grossMargins",
-                    "operatingMargins",
-                }:
+                if source_key in percentage_keys:
                     numeric_value *= 100.0
                 fundamentals[target_key] = numeric_value
                 source_name = "yfinance"
@@ -675,31 +796,114 @@ class EnhancedWebStockAnalyzer:
         if not fundamentals:
             try:  # pragma: no cover - network dependent
                 financials = None
-                getter = getattr(ticker, "get_financials", None)
+                getter = getattr(ticker_instance, "get_financials", None)
                 if callable(getter):
                     financials = getter()
-                elif hasattr(ticker, "financials"):
-                    financials = ticker.financials
+                elif hasattr(ticker_instance, "financials"):
+                    financials = ticker_instance.financials
 
                 if isinstance(financials, pd.DataFrame) and not financials.empty:
-                    revenue = financials.get("Total Revenue")
-                    net_income = financials.get("Net Income")
-                    if revenue is not None and not revenue.empty:
-                        revenue_value = float(revenue.iloc[0])
-                        fundamentals["revenue"] = revenue_value
-                    if net_income is not None and not net_income.empty:
-                        net_income_value = float(net_income.iloc[0])
-                        fundamentals["net_income"] = net_income_value
-                        if fundamentals.get("revenue"):
-                            fundamentals["net_margin"] = (
-                                net_income_value / fundamentals["revenue"] * 100.0
-                                if fundamentals["revenue"]
-                                else None
-                            ) or fundamentals.get("net_margin")
+                    revenue_series = self._extract_statement_value(
+                        financials, ["Total Revenue", "totalRevenue"]
+                    )
+                    net_income_series = self._extract_statement_value(
+                        financials, ["Net Income", "netIncome"]
+                    )
+                    if revenue_series is not None:
+                        fundamentals["revenue"] = revenue_series
+                    if net_income_series is not None:
+                        fundamentals["net_income"] = net_income_series
+                        if revenue_series:
+                            fundamentals.setdefault(
+                                "net_margin",
+                                (net_income_series / revenue_series) * 100.0
+                                if revenue_series
+                                else None,
+                            )
                     if fundamentals:
                         source_name = "yfinance-financials"
             except Exception as exc:
                 provider_warnings.append(f"yfinance financial statement fetch failed: {exc}")
+
+        # Supplement metrics using detailed statements even when base info succeeded.
+        try:  # pragma: no cover - network dependent
+            income_stmt = None
+            balance_sheet = None
+            cashflow_stmt = None
+            ticker_for_statements = ticker_instance
+            if ticker_for_statements is None and yf is not None:
+                ticker_for_statements = yf.Ticker(stock_code)
+
+            if ticker_for_statements is not None:
+                getter_income = getattr(ticker_for_statements, "get_income_stmt", None)
+                getter_balance = getattr(ticker_for_statements, "get_balance_sheet", None)
+                getter_cash = getattr(ticker_for_statements, "get_cashflow", None)
+                income_stmt = (
+                    getter_income() if callable(getter_income) else getattr(ticker_for_statements, "income_stmt", None)
+                )
+                balance_sheet = (
+                    getter_balance() if callable(getter_balance) else getattr(ticker_for_statements, "balance_sheet", None)
+                )
+                cashflow_stmt = (
+                    getter_cash() if callable(getter_cash) else getattr(ticker_for_statements, "cashflow", None)
+                )
+
+            revenue_current = self._extract_statement_value(
+                income_stmt, ["Total Revenue", "totalRevenue"]
+            )
+            revenue_prev = None
+            if isinstance(income_stmt, pd.DataFrame) and not income_stmt.empty:
+                normalized_index = {
+                    str(idx).strip().lower(): idx for idx in income_stmt.index
+                }
+                for candidate in ("total revenue", "totalRevenue"):
+                    lookup = candidate.lower()
+                    if lookup in normalized_index:
+                        row = income_stmt.loc[normalized_index[lookup]]
+                        if isinstance(row, pd.Series) and row.size > 1:
+                            revenue_prev = self._safe_numeric(row.iloc[1])
+                        break
+
+            net_income_current = self._extract_statement_value(
+                income_stmt, ["Net Income", "netIncome"]
+            )
+            equity = self._extract_statement_value(
+                balance_sheet,
+                [
+                    "Total Stockholder Equity",
+                    "totalStockholderEquity",
+                    "Total Equity Gross Minority Interest",
+                ],
+            )
+            total_assets = self._extract_statement_value(
+                balance_sheet, ["Total Assets", "totalAssets"]
+            )
+            free_cash_flow = self._extract_statement_value(
+                cashflow_stmt,
+                ["Free Cash Flow", "freeCashFlow", "Free Cash Flow Net Income"],
+            )
+
+            if revenue_current is not None:
+                fundamentals.setdefault("revenue", revenue_current)
+            if net_income_current is not None:
+                fundamentals.setdefault("net_income", net_income_current)
+            if equity is not None and net_income_current is not None:
+                fundamentals.setdefault("roe", (net_income_current / equity) * 100.0 if equity else None)
+            if total_assets is not None and net_income_current is not None:
+                fundamentals.setdefault(
+                    "roa", (net_income_current / total_assets) * 100.0 if total_assets else None
+                )
+            if free_cash_flow is not None:
+                fundamentals.setdefault("free_cash_flow", free_cash_flow)
+            if revenue_current is not None and revenue_prev is not None:
+                growth = self._compute_growth(revenue_current, revenue_prev)
+                if growth is not None:
+                    fundamentals.setdefault("revenue_growth", growth)
+        except Exception as exc:
+            provider_warnings.append(f"Extended yfinance statement parse failed: {exc}")
+
+        if fundamentals and not source_name:
+            source_name = "yfinance"
 
         return fundamentals, source_name, provider_warnings
 
@@ -714,13 +918,16 @@ class EnhancedWebStockAnalyzer:
         fundamentals: Dict[str, float] = {}
         source_name = ""
         provider_warnings: List[str] = []
+        providers_attempted: List[str] = []
 
         if yf is not None:
+            providers_attempted.append("yfinance")
             fetched, source_name, yf_warnings = self._fetch_yfinance_fundamentals(stock_code)
             fundamentals.update(fetched)
             provider_warnings.extend(yf_warnings)
-
+        
         if not fundamentals and ak is not None:
+            providers_attempted.append("akshare")
             try:  # pragma: no cover - network dependent
                 info = ak.stock_us_fundamental(stock=stock_code)
                 if info is not None and not info.empty:
@@ -755,15 +962,16 @@ class EnhancedWebStockAnalyzer:
             logger.warning(
                 "Fundamental fetch returned 0 metrics for %s (providers tried: %s)",
                 stock_code,
-                ", ".join(["yfinance", "akshare"]),
+                ", ".join(providers_attempted or ["none"]),
             )
 
         data = {
             "financial_indicators": fundamentals,
             "metadata": {
-                "source": source_name or "placeholder",
+                "source": source_name or ("yfinance" if fundamentals else "unavailable"),
                 "retrieved_at": datetime.now().isoformat(),
                 "warnings": provider_warnings,
+                "providers_attempted": providers_attempted,
             },
         }
 
@@ -883,6 +1091,12 @@ class EnhancedWebStockAnalyzer:
             for key, values in aggregated.items()
         }
 
+        metadata = {
+            "sources": sources_used,
+            "retrieved_at": datetime.utcnow().isoformat(),
+            "fallback_used": fallback_required,
+        }
+
         total_items = sum(len(values) for values in aggregated.values())
         if total_items:
             logger.info(
@@ -898,8 +1112,11 @@ class EnhancedWebStockAnalyzer:
                 ", ".join(sources_used) if sources_used else "none",
             )
 
-        self._news_cache[stock_code] = (datetime.now(), aggregated)
-        return aggregated
+        result = dict(aggregated)
+        result["metadata"] = metadata
+
+        self._news_cache[stock_code] = (datetime.now(), result)
+        return result
 
     def _deduplicate_news_items(
         self, items: List[Dict[str, Any]], limit: int
@@ -1125,23 +1342,75 @@ class EnhancedWebStockAnalyzer:
 
         return buckets
 
-    def calculate_advanced_sentiment_analysis(self, news_data: Dict[str, List[dict]]) -> Dict:
+    def calculate_advanced_sentiment_analysis(self, news_data: Dict[str, Any]) -> Dict:
         """Generate sentiment statistics from news content."""
 
-        total_items = sum(len(items) for items in news_data.values())
-        sentiment_score = 0.0
-        confidence = 0.0
-        sentiment_trend = "insufficient-data"
+        buckets = {
+            key: value for key, value in news_data.items() if isinstance(value, list)
+        }
+        metadata = news_data.get("metadata", {}) if isinstance(news_data, dict) else {}
+        total_items = sum(len(items) for items in buckets.values())
 
-        if total_items:
-            sentiment_trend = "neutral"
-            confidence = 0.5
+        if not total_items:
+            return {
+                "overall_sentiment": 0.0,
+                "confidence_score": 0.0,
+                "sentiment_trend": "insufficient-data",
+                "total_analyzed": 0,
+                "sources": metadata.get("sources", []),
+                "analyzer": "none",
+            }
+
+        analyzer = self._get_sentiment_analyzer()
+        sentiment_scores: List[float] = []
+        for items in buckets.values():
+            for article in items:
+                if not isinstance(article, dict):
+                    continue
+                title = (article.get("title") or "").strip()
+                summary = (article.get("summary") or "").strip()
+                content = f"{title}. {summary}".strip()
+                if not content:
+                    continue
+                try:
+                    if analyzer is not None:
+                        score = analyzer.polarity_scores(content).get("compound", 0.0)
+                    else:
+                        score = self._estimate_keyword_sentiment(content)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.debug("Sentiment scoring failed for article: %s", exc)
+                    continue
+                sentiment_scores.append(float(max(-1.0, min(1.0, score))))
+
+        if not sentiment_scores:
+            return {
+                "overall_sentiment": 0.0,
+                "confidence_score": 0.0,
+                "sentiment_trend": "insufficient-data",
+                "total_analyzed": total_items,
+                "sources": metadata.get("sources", []),
+                "analyzer": "keyword" if analyzer is None else "vader",
+            }
+
+        overall_sentiment = float(np.mean(sentiment_scores))
+        confidence = min(1.0, max(0.1, total_items / 20.0))
+        if analyzer is None:
+            confidence *= 0.6  # Heuristic: keyword fallback is less reliable
+
+        if overall_sentiment >= 0.1:
+            trend = "bullish"
+        elif overall_sentiment <= -0.1:
+            trend = "bearish"
+        else:
+            trend = "neutral"
 
         return {
-            "overall_sentiment": sentiment_score,
+            "overall_sentiment": overall_sentiment,
             "confidence_score": confidence,
-            "sentiment_trend": sentiment_trend,
+            "sentiment_trend": trend,
             "total_analyzed": total_items,
+            "sources": metadata.get("sources", []),
+            "analyzer": "vader" if analyzer is not None else "keyword",
         }
 
     def calculate_sentiment_score(self, sentiment_analysis: Dict) -> Optional[float]:
@@ -1227,6 +1496,8 @@ class EnhancedWebStockAnalyzer:
                         value_str = "N/A"
                     else:
                         value_str = f"{numeric_value:.4f}" if abs(numeric_value) < 1 else f"{numeric_value:.2f}"
+                elif isinstance(value, (list, tuple, set)):
+                    value_str = ", ".join(str(item) for item in value if item) or "N/A"
                 elif value in (None, ""):
                     value_str = "N/A"
                 else:
@@ -1641,6 +1912,7 @@ class EnhancedWebStockAnalyzer:
 
         news_data = self.get_comprehensive_news_data(normalized_code)
         sentiment_analysis = self.calculate_advanced_sentiment_analysis(news_data)
+        news_metadata = news_data.get("metadata", {}) if isinstance(news_data, dict) else {}
         sentiment_score = self.calculate_sentiment_score(sentiment_analysis)
 
         scores = {
@@ -1654,6 +1926,7 @@ class EnhancedWebStockAnalyzer:
 
         fundamental_count = len(fundamental_data.get("financial_indicators", {}))
         news_count = sentiment_analysis.get("total_analyzed", 0)
+        news_sources = sentiment_analysis.get("sources") or news_metadata.get("sources") or []
         data_quality_messages: List[str] = []
 
         metadata_warnings = fundamental_data.get("metadata", {}).get("warnings") or []
@@ -1663,13 +1936,17 @@ class EnhancedWebStockAnalyzer:
             data_quality_messages.append(
                 "Fundamental data is unavailable; valuation metrics could not be assessed."
             )
-        if fundamental_data.get("metadata", {}).get("source") == "placeholder":
+        if fundamental_data.get("metadata", {}).get("source") in {"placeholder", "unavailable"}:
             data_quality_messages.append(
-                "Fundamental source is a placeholder – verify API credentials or provider availability."
+                "Fundamental source is unavailable – verify API credentials or provider availability."
             )
         if news_count == 0:
             data_quality_messages.append(
                 "No recent news articles were retrieved. Sentiment score has been marked as N/A."
+            )
+        elif sentiment_analysis.get("analyzer") == "keyword":
+            data_quality_messages.append(
+                "Sentiment scoring fell back to keyword heuristics. Install vaderSentiment for higher fidelity results."
             )
         if price_info.get("current_price") is None:
             data_quality_messages.append(
@@ -1688,8 +1965,13 @@ class EnhancedWebStockAnalyzer:
             if fundamental_count > 0 and news_count > 0
             else "partial",
             "market_coverage": "US",
-            "fundamental_source": fundamental_data.get("metadata", {}).get("source", "placeholder"),
+            "fundamental_source": fundamental_data.get("metadata", {}).get("source", "unavailable"),
+            "fundamental_providers": fundamental_data.get("metadata", {}).get(
+                "providers_attempted", []
+            ),
             "sentiment_available": news_count > 0,
+            "news_sources": news_sources,
+            "sentiment_analyzer": sentiment_analysis.get("analyzer"),
             "messages": deduped_messages,
         }
 

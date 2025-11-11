@@ -506,6 +506,8 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             font-size: 13px;
         }
         .log-entry { margin-bottom: 6px; }
+        .log-entry.info { color: #94a3b8; }
+        .log-entry.warn { color: #f59e0b; }
         .log-entry.error { color: #fca5a5; }
         .log-entry.warning { color: #facc15; }
         .score-grid {
@@ -565,25 +567,48 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .result-grid {
             display: grid;
             gap: 14px;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
         }
         .result-item {
-            background: white;
+            background: #f8fafc;
             border-radius: 14px;
             padding: 14px;
             border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
         .result-label {
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: #64748b;
-            margin-bottom: 6px;
         }
         .result-value {
             font-size: 16px;
             font-weight: 600;
             color: #0f172a;
+        }
+        .result-note {
+            font-size: 12px;
+            color: #64748b;
+        }
+        .result-item.warn {
+            background: #fff7ed;
+            border-color: #fb923c;
+        }
+        .result-item.warn .result-value {
+            color: #c2410c;
+        }
+        .result-item.warn .result-note {
+            color: #b45309;
+        }
+        .result-item.info {
+            background: #eef2ff;
+            border-color: #a5b4fc;
+        }
+        .result-item.info .result-value {
+            color: #3730a3;
         }
         .result-body {
             margin-top: 18px;
@@ -971,13 +996,6 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         document.getElementById('compositeScore').textContent = formatScore(scores.comprehensive);
     }
 
-    function safeNumber(value) {
-        if (typeof value === 'number' && !isNaN(value)) {
-            return value.toFixed(2);
-        }
-        return 'N/A';
-    }
-
     function formatInteger(value) {
         if (typeof value === 'number' && !isNaN(value)) {
             return Math.round(value).toLocaleString();
@@ -985,8 +1003,36 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         return 'N/A';
     }
 
-    function buildHighlight(label, value) {
-        return '<div class="result-item"><div class="result-label">' + label + '</div><div class="result-value">' + value + '</div></div>';
+    function hasNumber(value) {
+        return typeof value === 'number' && !isNaN(value);
+    }
+
+    function formatPriceValue(value, currency) {
+        if (hasNumber(value)) {
+            var priceText = value.toFixed(2);
+            if (currency) {
+                priceText += ' ' + currency;
+            }
+            return priceText;
+        }
+        return 'N/A';
+    }
+
+    function formatChangeValue(value) {
+        if (hasNumber(value)) {
+            var prefix = value > 0 ? '+' : '';
+            return prefix + value.toFixed(2) + '%';
+        }
+        return 'N/A';
+    }
+
+    function buildHighlight(label, value, severity, note) {
+        var classes = 'result-item';
+        if (severity) {
+            classes += ' ' + severity;
+        }
+        var noteHtml = note ? '<div class="result-note">' + note + '</div>' : '';
+        return '<div class="' + classes + '"><div class="result-label">' + label + '</div><div class="result-value">' + value + '</div>' + noteHtml + '</div>';
     }
 
     function showResult(report) {
@@ -1007,6 +1053,8 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         var recommendation = report && report.recommendation ? report.recommendation : 'N/A';
         var scores = report && report.scores ? report.scores : {};
         var dataQuality = report && report.data_quality ? report.data_quality : {};
+        var newsSources = Array.isArray(dataQuality.news_sources) ? dataQuality.news_sources : [];
+        var fundamentalProviders = Array.isArray(dataQuality.fundamental_providers) ? dataQuality.fundamental_providers : [];
 
         if (metaPanel) {
             var metaParts = [];
@@ -1020,33 +1068,76 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         if (highlightPanel) {
-            var highlights = '';
-            var priceValue = safeNumber(priceInfo.current_price);
-            if (priceValue !== 'N/A') {
-                priceValue += ' ' + currency;
-            }
-            highlights += buildHighlight('Last close', priceValue);
+            var highlightBlocks = [];
+            var priceText = formatPriceValue(priceInfo.current_price, currency);
+            var priceSeverity = priceText === 'N/A' ? 'warn' : '';
+            var priceNote = priceSeverity ? 'Price snapshot unavailable.' : '';
+            highlightBlocks.push(buildHighlight('Last close', priceText, priceSeverity, priceNote));
 
-            var changeValue = safeNumber(priceInfo.price_change);
-            if (changeValue !== 'N/A') {
-                changeValue += '%';
-            }
-            highlights += buildHighlight('Daily change', changeValue);
+            var changeText = formatChangeValue(priceInfo.price_change);
+            var changeSeverity = changeText === 'N/A' ? 'warn' : '';
+            var changeNote = changeSeverity ? 'Daily change could not be calculated.' : '';
+            highlightBlocks.push(buildHighlight('Daily change', changeText, changeSeverity, changeNote));
 
             if (dataQuality.financial_indicators_count !== undefined) {
-                highlights += buildHighlight('Financial indicators', formatInteger(dataQuality.financial_indicators_count));
+                var indicatorCount = dataQuality.financial_indicators_count;
+                var indicatorSeverity = hasNumber(indicatorCount) && indicatorCount > 0 ? '' : 'warn';
+                var indicatorText = hasNumber(indicatorCount) && indicatorCount > 0 ? formatInteger(indicatorCount) : 'None';
+                var indicatorNote = indicatorSeverity ? 'No fundamentals returned from configured providers.' : '';
+                highlightBlocks.push(buildHighlight('Financial indicators', indicatorText, indicatorSeverity, indicatorNote));
             }
+
             if (dataQuality.total_news_count !== undefined) {
-                highlights += buildHighlight('News items analysed', formatInteger(dataQuality.total_news_count));
+                var newsCount = dataQuality.total_news_count;
+                var newsSeverity = hasNumber(newsCount) && newsCount > 0 ? '' : 'warn';
+                var newsText = hasNumber(newsCount) && newsCount > 0 ? formatInteger(newsCount) : 'None';
+                var newsNote = newsSeverity ? 'No recent news items were analysed.' : '';
+                highlightBlocks.push(buildHighlight('News coverage', newsText, newsSeverity, newsNote));
             }
+
+            if (Array.isArray(dataQuality.news_sources) && dataQuality.news_sources.length) {
+                highlightBlocks.push(
+                    buildHighlight('News sources', dataQuality.news_sources.join(', '))
+                );
+            }
+
             if (dataQuality.analysis_completeness) {
-                var completenessText = dataQuality.analysis_completeness === 'complete' ? 'Complete coverage' : 'Partial coverage';
-                highlights += buildHighlight('Data coverage', completenessText);
+                var complete = dataQuality.analysis_completeness === 'complete';
+                highlightBlocks.push(
+                    buildHighlight(
+                        'Data coverage',
+                        complete ? 'Complete coverage' : 'Partial coverage',
+                        complete ? '' : 'warn',
+                        complete ? '' : 'Review the alerts below to address missing inputs.'
+                    )
+                );
             }
+
             if (dataQuality.fundamental_source) {
-                highlights += buildHighlight('Fundamental source', dataQuality.fundamental_source);
+                var sourceSeverity = dataQuality.fundamental_source === 'unavailable' ? 'warn' : '';
+                var sourceNote = sourceSeverity ? 'Fundamental data provider did not return values.' : '';
+                highlightBlocks.push(
+                    buildHighlight('Fundamental source', dataQuality.fundamental_source, sourceSeverity, sourceNote)
+                );
             }
-            highlightPanel.innerHTML = highlights;
+
+            if (Array.isArray(dataQuality.fundamental_providers) && dataQuality.fundamental_providers.length) {
+                highlightBlocks.push(
+                    buildHighlight('Providers attempted', dataQuality.fundamental_providers.join(', '), 'info')
+                );
+            }
+
+            if (dataQuality.sentiment_analyzer) {
+                var analyzerKey = dataQuality.sentiment_analyzer.toString().toLowerCase();
+                var analyzerSeverity = analyzerKey === 'vader' ? '' : 'warn';
+                var analyzerLabel = analyzerKey === 'vader' ? 'VADER sentiment' : (analyzerKey === 'keyword' ? 'Keyword fallback' : 'No sentiment engine');
+                var analyzerNote = analyzerSeverity ? 'Install vaderSentiment for richer tone detection.' : '';
+                highlightBlocks.push(
+                    buildHighlight('Sentiment engine', analyzerLabel, analyzerSeverity, analyzerNote)
+                );
+            }
+
+            highlightPanel.innerHTML = highlightBlocks.join('');
         }
 
         var compositeScore = formatScore(scores.comprehensive);
@@ -1063,6 +1154,17 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
         if (dataQuality.fundamental_source) {
             summaryHtml += '<p><strong>Fundamentals source:</strong> ' + dataQuality.fundamental_source + '</p>';
+        }
+        if (fundamentalProviders.length) {
+            summaryHtml += '<p><strong>Providers attempted:</strong> ' + fundamentalProviders.join(', ') + '</p>';
+        }
+        if (newsSources.length) {
+            summaryHtml += '<p><strong>News sources:</strong> ' + newsSources.join(', ') + '</p>';
+        }
+        if (dataQuality.sentiment_analyzer) {
+            var analyzerKeySummary = dataQuality.sentiment_analyzer.toString().toLowerCase();
+            var analyzerLabelSummary = analyzerKeySummary === 'vader' ? 'VADER sentiment' : (analyzerKeySummary === 'keyword' ? 'Keyword fallback' : 'No sentiment engine');
+            summaryHtml += '<p><strong>Sentiment engine:</strong> ' + analyzerLabelSummary + '</p>';
         }
 
         summaryPanel.innerHTML = summaryHtml;
@@ -1147,6 +1249,10 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
         if (highlightPanel) {
             highlightPanel.innerHTML = '';
+        }
+        if (notesPanel) {
+            notesPanel.innerHTML = '';
+            notesPanel.style.display = 'none';
         }
         updateScores({});
         resetAI();
