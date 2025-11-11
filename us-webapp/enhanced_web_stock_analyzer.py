@@ -364,6 +364,127 @@ class EnhancedWebStockAnalyzer:
             },
         }
 
+    def get_editable_config(self) -> Dict[str, Any]:
+        """Return a sanitised snapshot of configurable settings for the UI."""
+
+        ai_config = self.config.get("ai", {})
+        models = ai_config.get("models", {})
+
+        markets: Dict[str, Dict[str, Any]] = {}
+        for code, value in self.market_config.items():
+            if not isinstance(value, dict):
+                continue
+            markets[code] = {
+                "enabled": bool(value.get("enabled", False)),
+                "name": value.get("name", code),
+                "currency": value.get("currency", ""),
+                "timezone": value.get("timezone", ""),
+                "trading_hours": value.get("trading_hours", ""),
+            }
+
+        return {
+            "ai": {
+                "model_preference": ai_config.get("model_preference", "openai"),
+                "models": {
+                    "openai": models.get("openai", ""),
+                    "anthropic": models.get("anthropic", ""),
+                    "zhipu": models.get("zhipu", ""),
+                },
+            },
+            "analysis_weights": {
+                key: float(value)
+                for key, value in self.analysis_weights.items()
+                if isinstance(value, (int, float))
+            },
+            "analysis_params": {
+                "technical_period_days": self.analysis_params.get("technical_period_days"),
+                "max_news_count": self.analysis_params.get("max_news_count"),
+                "financial_indicators_count": self.analysis_params.get("financial_indicators_count"),
+            },
+            "markets": markets,
+        }
+
+    def update_runtime_config(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge user-supplied updates into the configuration and persist them."""
+
+        if not isinstance(updates, dict):
+            raise ValueError("Configuration payload must be a JSON object")
+
+        changed = False
+
+        ai_updates = updates.get("ai")
+        if isinstance(ai_updates, dict):
+            ai_config = self.config.setdefault("ai", {})
+            model_preference = ai_updates.get("model_preference")
+            if isinstance(model_preference, str) and model_preference.strip():
+                ai_config["model_preference"] = model_preference.strip()
+                changed = True
+            models_updates = ai_updates.get("models")
+            if isinstance(models_updates, dict):
+                models_config = ai_config.setdefault("models", {})
+                for provider_key, model_value in models_updates.items():
+                    if isinstance(model_value, str):
+                        models_config[provider_key] = model_value.strip()
+                        changed = True
+
+        weight_updates = updates.get("analysis_weights")
+        if isinstance(weight_updates, dict):
+            combined = dict(self.analysis_weights)
+            provided = False
+            for key in ("technical", "fundamental", "sentiment"):
+                if key not in weight_updates:
+                    continue
+                numeric = self._safe_numeric(weight_updates.get(key))
+                if numeric is None:
+                    continue
+                if numeric > 1.0:
+                    numeric = numeric / 100.0
+                combined[key] = max(0.0, numeric)
+                provided = True
+            if provided:
+                total = sum(combined.values())
+                if total > 0:
+                    normalised = {key: value / total for key, value in combined.items()}
+                else:
+                    normalised = combined
+                self.config["analysis_weights"] = normalised
+                changed = True
+
+        params_updates = updates.get("analysis_params")
+        if isinstance(params_updates, dict):
+            params_config = self.config.setdefault("analysis_params", {})
+            for key in ("technical_period_days", "max_news_count", "financial_indicators_count"):
+                if key not in params_updates:
+                    continue
+                numeric = self._safe_numeric(params_updates.get(key))
+                if numeric is None:
+                    continue
+                params_config[key] = int(max(1, round(numeric)))
+                changed = True
+
+        markets_updates = updates.get("markets")
+        if isinstance(markets_updates, dict):
+            markets_config = self.config.setdefault("markets", {})
+            for code, payload in markets_updates.items():
+                if not isinstance(payload, dict):
+                    continue
+                target = markets_config.setdefault(code, {"name": code, "enabled": True})
+                if "enabled" in payload:
+                    target["enabled"] = bool(payload.get("enabled"))
+                for field in ("name", "currency", "timezone", "trading_hours"):
+                    value = payload.get(field)
+                    if isinstance(value, str):
+                        target[field] = value
+                changed = True
+
+        if changed:
+            self.analysis_weights = self.config.get("analysis_weights", self.analysis_weights)
+            self.analysis_params = self.config.get("analysis_params", self.analysis_params)
+            self.market_config = self.config.get("markets", self.market_config)
+            self._save_config(self.config)
+
+        return self.get_editable_config()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -476,6 +597,8 @@ class EnhancedWebStockAnalyzer:
             return self._safe_numeric(value)
 
         price_value = _pull("price", "regularMarketPrice") or _pull("financialData", "currentPrice")
+        if price_value is not None:
+            fundamentals["last_price"] = price_value
         eps = _pull("defaultKeyStatistics", "trailingEps")
         if price_value and eps and eps != 0:
             fundamentals["pe_ratio"] = price_value / eps
@@ -848,6 +971,23 @@ class EnhancedWebStockAnalyzer:
         statements: Dict[str, Optional[pd.DataFrame]] = {"income": None, "balance": None, "cashflow": None}
         earnings_dates: Optional[pd.DataFrame] = None
 
+        summary_data, summary_warnings = self._fetch_yahoo_quote_summary(stock_code)
+        if summary_data:
+            fundamentals.update(summary_data)
+            source_name = source_name or "yahoo-quote"
+        provider_warnings.extend(summary_warnings)
+
+        key_fields = {"pe_ratio", "eps", "roe", "revenue_growth", "net_margin", "operating_margin"}
+        has_core_metrics = any(field in fundamentals for field in key_fields)
+
+        if has_core_metrics:
+            last_price = fundamentals.get("last_price")
+        else:
+            last_price = None
+
+        if has_core_metrics and len(fundamentals) >= 5:
+            return fundamentals, source_name or "yahoo-quote", provider_warnings
+
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {
                 "info": pool.submit(lambda: ticker_instance.get_info() or {}),
@@ -1051,7 +1191,7 @@ class EnhancedWebStockAnalyzer:
             fundamentals.update(fetched)
             provider_warnings.extend(yf_warnings)
         
-        if not fundamentals and ak is not None:
+        if not fundamentals and ak is not None and hasattr(ak, "stock_us_fundamental"):
             providers_attempted.append("akshare")
             try:  # pragma: no cover - network dependent
                 info = ak.stock_us_fundamental(stock=stock_code)
@@ -1072,6 +1212,10 @@ class EnhancedWebStockAnalyzer:
             except Exception as exc:
                 provider_warnings.append(f"akshare fundamental fetch failed: {exc}")
                 logger.warning("Unable to fetch fundamentals for %s via akshare: %s", stock_code, exc)
+        elif not fundamentals and ak is not None and not hasattr(ak, "stock_us_fundamental"):
+            provider_warnings.append(
+                "akshare installation does not provide stock_us_fundamental; skipping provider."
+            )
 
         if fundamentals:
             logger.info(
@@ -1082,7 +1226,7 @@ class EnhancedWebStockAnalyzer:
             )
         else:
             provider_warnings.append(
-                "No fundamental metrics were retrieved; check data providers or ticker symbol."
+                "No fundamental metrics were retrieved; check data providers, ticker symbol, or rate limits."
             )
             logger.warning(
                 "Fundamental fetch returned 0 metrics for %s (providers tried: %s)",
@@ -1232,6 +1376,39 @@ class EnhancedWebStockAnalyzer:
         payload = {**aggregated, "metadata": metadata}
         self._news_cache[stock_code] = (datetime.now(), payload)
         return payload
+
+    def _deduplicate_news_items(self, items: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+        """Remove duplicate headlines while preserving recency order."""
+
+        if not items:
+            return []
+
+        seen: set[str] = set()
+        cleaned: List[Dict[str, Any]] = []
+
+        def _normalise(value: Optional[str]) -> str:
+            if not value:
+                return ""
+            return str(value).strip().lower()
+
+        sorted_items = sorted(
+            (item for item in items if isinstance(item, dict)),
+            key=lambda item: item.get("published_at") or "",
+            reverse=True,
+        )
+
+        for item in sorted_items:
+            key = _normalise(item.get("url")) or _normalise(item.get("title"))
+            if not key:
+                key = f"item-{len(cleaned)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(item)
+            if limit and len(cleaned) >= limit:
+                break
+
+        return cleaned
 
     def _standardize_news_item(
         self,

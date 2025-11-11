@@ -11,6 +11,7 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
 - 🇺🇸 **U.S.-first market support** – A-share and Hong Kong pipelines are disabled by default.
 - 🌊 **Live SSE streaming** – watch technical calculations, sentiment pulls, and AI commentary arrive in real time.
 - 🎨 **Material Design 3 UI** – refreshed cards, buttons, and typography built with Material You tokens for cohesive visuals.
+- ⚙️ **Inline config drawer** – adjust AI provider, weighting, analysis windows, and enabled markets directly from the dashboard; changes persist to `config.json`.
 - 🤖 **Multi-LLM adapters** – switch between OpenAI, Anthropic, and Zhipu endpoints from `config.json`.
 - 🧮 **Weighted scoring** – blend technical, fundamental, and sentiment grades into a 0–100 composite.
 - 🗂️ **Batch workflows** – submit multiple tickers and receive independent streamed results.
@@ -54,6 +55,8 @@ The bundled sample (`config.sample.json`) documents every option inline. Highlig
 | `streaming` | Toggle SSE behaviour and response pacing |
 | `markets` | Enable/disable supported markets – only `us_stock` ships enabled |
 | `web_auth` | Optional password wall for the web UI |
+
+> Tip: you can also open the **Module configuration** drawer in the web UI (left column) to change the same settings without leaving the browser. Saving from the UI overwrites `config.json` with your new preferences.
 
 ## Data Providers
 

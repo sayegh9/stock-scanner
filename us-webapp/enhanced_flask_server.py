@@ -54,6 +54,7 @@ analysis_tasks: Dict[str, Dict] = {}
 analysis_results: Dict[str, Dict] = {}
 client_reports: Dict[str, Dict] = {}
 analysis_lock = threading.Lock()
+config_lock = threading.Lock()
 client_reports_lock = threading.Lock()
 sse_clients: Dict[str, Queue] = {}
 sse_lock = threading.Lock()
@@ -250,25 +251,25 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
 
         :root {
             color-scheme: light;
-            --md-sys-color-primary: #6750a4;
+            --md-sys-color-primary: #1b4ed8;
             --md-sys-color-on-primary: #ffffff;
-            --md-sys-color-primary-container: #eaddff;
-            --md-sys-color-on-primary-container: #21005d;
-            --md-sys-color-secondary: #625b71;
+            --md-sys-color-primary-container: #dbe3ff;
+            --md-sys-color-on-primary-container: #001a40;
+            --md-sys-color-secondary: #4f5b7c;
             --md-sys-color-on-secondary: #ffffff;
-            --md-sys-color-secondary-container: #e8def8;
-            --md-sys-color-surface: #f7f2fa;
-            --md-sys-color-surface-container-low: #fef7ff;
-            --md-sys-color-surface-container: #f3edf7;
-            --md-sys-color-surface-container-high: #ece6f0;
-            --md-sys-color-surface-container-highest: #e6e0eb;
-            --md-sys-color-outline: #79747e;
-            --md-sys-color-outline-variant: #cac4d0;
-            --md-sys-color-on-surface: #1d1b20;
-            --md-sys-color-on-surface-variant: #49454f;
-            --md-sys-color-error: #b3261e;
-            --md-sys-color-success: #386a20;
-            --md-sys-color-warning: #7f4e00;
+            --md-sys-color-secondary-container: #e1e7ff;
+            --md-sys-color-surface: #f5f7ff;
+            --md-sys-color-surface-container-low: #ffffff;
+            --md-sys-color-surface-container: #ffffff;
+            --md-sys-color-surface-container-high: #f0f4ff;
+            --md-sys-color-surface-container-highest: #e9efff;
+            --md-sys-color-outline: #c0c8eb;
+            --md-sys-color-outline-variant: #d8def4;
+            --md-sys-color-on-surface: #101b3d;
+            --md-sys-color-on-surface-variant: #4a5877;
+            --md-sys-color-error: #ba1a1a;
+            --md-sys-color-success: #2f7d4a;
+            --md-sys-color-warning: #b35c00;
         }
 
         *, *::before, *::after {
@@ -278,7 +279,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         body {
             margin: 0;
             font-family: 'Roboto Flex', 'Roboto', sans-serif;
-            background: linear-gradient(180deg, var(--md-sys-color-surface-container-low) 0%, var(--md-sys-color-surface) 100%);
+            background: var(--md-sys-color-surface);
             color: var(--md-sys-color-on-surface);
             min-height: 100vh;
         }
@@ -297,7 +298,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .hero {
-            background: linear-gradient(120deg, var(--md-sys-color-primary) 0%, #4f378b 45%, #7f67be 100%);
+            background: linear-gradient(115deg, #1b4ed8 0%, #3f63f5 45%, #7689ff 100%);
             border-radius: 28px;
             color: var(--md-sys-color-on-primary);
             padding: 32px 36px;
@@ -313,8 +314,8 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             content: "";
             position: absolute;
             inset: 0;
-            background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.24), transparent 55%),
-                        radial-gradient(circle at 80% 10%, rgba(255, 255, 255, 0.18), transparent 55%);
+            background: radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.28), transparent 55%),
+                        radial-gradient(circle at 75% 15%, rgba(255, 255, 255, 0.22), transparent 60%);
             pointer-events: none;
         }
 
@@ -388,7 +389,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             background: var(--md-sys-color-surface-container);
             border-radius: 24px;
             border: 1px solid var(--md-sys-color-outline-variant);
-            box-shadow: 0 8px 24px rgba(17, 12, 34, 0.08);
+            box-shadow: 0 16px 32px rgba(27, 78, 216, 0.08);
             padding: 24px;
             display: flex;
             flex-direction: column;
@@ -474,6 +475,183 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
 
         .status-item.warn {
             border-color: rgba(255, 191, 0, 0.35);
+        }
+
+        .config-panel {
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 20px;
+            background: #f7f9ff;
+            overflow: hidden;
+        }
+
+        .config-panel summary {
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            cursor: pointer;
+            padding: 16px 18px;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .config-panel summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .config-summary-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .config-summary-meta span {
+            font-weight: 500;
+        }
+
+        .config-summary-meta small {
+            font-weight: 400;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .config-chevron {
+            transition: transform 0.2s ease;
+            font-size: 1.1rem;
+        }
+
+        .config-panel[open] .config-chevron {
+            transform: rotate(180deg);
+        }
+
+        .config-form {
+            padding: 0 18px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .config-group {
+            background: #ffffff;
+            border-radius: 16px;
+            border: 1px solid var(--md-sys-color-outline-variant);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .config-group h3 {
+            margin: 0;
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .config-field-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+        }
+
+        .config-field-grid.three {
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        }
+
+        .config-group label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .config-group input[type="text"],
+        .config-group input[type="number"],
+        .config-group select {
+            width: 100%;
+            border-radius: 14px;
+            border: 1px solid var(--md-sys-color-outline-variant);
+            background: var(--md-sys-color-surface-container-highest);
+            padding: 12px 14px;
+            font-size: 0.95rem;
+            color: var(--md-sys-color-on-surface);
+        }
+
+        .config-group input:focus,
+        .config-group select:focus {
+            outline: none;
+            border-color: var(--md-sys-color-primary);
+            box-shadow: 0 0 0 2px rgba(27, 78, 216, 0.16);
+            background: #ffffff;
+        }
+
+        .config-market-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .config-market {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .config-market input {
+            margin-top: 6px;
+        }
+
+        .config-market-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .config-market-info strong {
+            font-size: 0.95rem;
+        }
+
+        .config-market-info span {
+            font-size: 0.8rem;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .config-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .config-status {
+            font-size: 0.85rem;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .config-status.pending {
+            color: #1e64f2;
+        }
+
+        .config-status.success {
+            color: #2f7d4a;
+        }
+
+        .config-status.error {
+            color: #d9482c;
+        }
+
+        .config-status.info {
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .config-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .config-empty {
+            font-size: 0.85rem;
+            color: var(--md-sys-color-on-surface-variant);
         }
 
         .status-icon {
@@ -640,24 +818,44 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             font-size: 0.85rem;
         }
 
+        .score-card.technical {
+            background: #ebf3ff;
+            border-color: #bed3ff;
+        }
+
         .score-card.technical .value {
-            color: #1d5fa7;
+            color: #1e64f2;
+        }
+
+        .score-card.fundamental {
+            background: #edf8f1;
+            border-color: #bfe7cf;
         }
 
         .score-card.fundamental .value {
-            color: #386a20;
+            color: #2f7d4a;
+        }
+
+        .score-card.sentiment {
+            background: #fff0eb;
+            border-color: #ffd4c6;
         }
 
         .score-card.sentiment .value {
-            color: #b3261e;
+            color: #d9482c;
+        }
+
+        .score-card.composite {
+            background: #ede9ff;
+            border-color: #cbc1ff;
         }
 
         .score-card.composite .value {
-            color: var(--md-sys-color-primary);
+            color: #5b3fd7;
         }
 
         .result-shell {
-            background: var(--md-sys-color-surface-container-high);
+            background: #f6f8ff;
             border-radius: 24px;
             border: 1px solid var(--md-sys-color-outline-variant);
             padding: 22px;
@@ -688,16 +886,19 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             border-radius: 18px;
             padding: 16px;
             border: 1px solid var(--md-sys-color-outline-variant);
-            background: var(--md-sys-color-surface-container);
+            background: #ffffff;
+            box-shadow: inset 4px 0 0 rgba(27, 78, 216, 0.08);
         }
 
         .result-item.warn {
-            border-color: rgba(179, 38, 30, 0.26);
-            background: rgba(249, 222, 218, 0.35);
+            border-color: rgba(217, 72, 44, 0.28);
+            background: #fff2ee;
+            box-shadow: inset 4px 0 0 rgba(217, 72, 44, 0.4);
         }
 
         .result-item.info {
-            border-color: rgba(26, 115, 232, 0.26);
+            border-color: rgba(30, 100, 242, 0.28);
+            box-shadow: inset 4px 0 0 rgba(30, 100, 242, 0.35);
         }
 
         .result-heading {
@@ -942,21 +1143,103 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                         </div>
                     </div>
                     {% endif %}
-                    {% if ui.get('cache') %}
-                    <div class="status-item ok">
-                        <div class="status-icon">✓</div>
-                        <div>
-                            <div class="status-title">Cache windows</div>
-                            <div class="status-subtitle">{{ ui.get('cache') }}</div>
+                {% if ui.get('cache') %}
+                <div class="status-item ok">
+                    <div class="status-icon">✓</div>
+                    <div>
+                        <div class="status-title">Cache windows</div>
+                        <div class="status-subtitle">{{ ui.get('cache') }}</div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            <details class="config-panel" id="configDetails">
+                <summary>
+                    <div class="config-summary-meta">
+                        <span>Module configuration</span>
+                        <small>AI provider, weighting, parameters, markets</small>
+                    </div>
+                    <span class="config-chevron">▾</span>
+                </summary>
+                <form id="configForm" class="config-form">
+                    <div class="config-group">
+                        <h3>AI Provider</h3>
+                        <label for="configProvider">Preferred provider</label>
+                        <select id="configProvider">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="zhipu">Zhipu AI</option>
+                        </select>
+                        <div class="config-field-grid">
+                            <div>
+                                <label for="configModelOpenAI">OpenAI model</label>
+                                <input type="text" id="configModelOpenAI" placeholder="e.g. gpt-4o-mini">
+                            </div>
+                            <div>
+                                <label for="configModelAnthropic">Anthropic model</label>
+                                <input type="text" id="configModelAnthropic" placeholder="e.g. claude-3-haiku">
+                            </div>
+                            <div>
+                                <label for="configModelZhipu">Zhipu model</label>
+                                <input type="text" id="configModelZhipu" placeholder="e.g. chatglm_turbo">
+                            </div>
                         </div>
                     </div>
-                    {% endif %}
-                </div>
-                <label for="singleSymbol">Ticker symbol</label>
-                <div class="input-row">
-                    <input id="singleSymbol" type="text" placeholder="e.g. AAPL" autocomplete="off">
-                    <button id="analyzeBtn" type="button" class="primary-button">🚀 Stream analysis</button>
-                </div>
+                    <div class="config-group">
+                        <h3>Analysis weighting</h3>
+                        <div class="config-field-grid three">
+                            <div>
+                                <label for="weightTechnical">Technical (%)</label>
+                                <input type="number" id="weightTechnical" min="0" max="100" step="1" placeholder="40">
+                            </div>
+                            <div>
+                                <label for="weightFundamental">Fundamental (%)</label>
+                                <input type="number" id="weightFundamental" min="0" max="100" step="1" placeholder="40">
+                            </div>
+                            <div>
+                                <label for="weightSentiment">Sentiment (%)</label>
+                                <input type="number" id="weightSentiment" min="0" max="100" step="1" placeholder="20">
+                            </div>
+                        </div>
+                        <small class="hint">Values are normalised automatically if they do not sum to 100.</small>
+                    </div>
+                    <div class="config-group">
+                        <h3>Analysis parameters</h3>
+                        <div class="config-field-grid">
+                            <div>
+                                <label for="paramTechnicalWindow">Technical lookback (days)</label>
+                                <input type="number" id="paramTechnicalWindow" min="30" max="365" step="1" placeholder="180">
+                            </div>
+                            <div>
+                                <label for="paramNewsLimit">News limit (articles)</label>
+                                <input type="number" id="paramNewsLimit" min="10" max="200" step="5" placeholder="100">
+                            </div>
+                            <div>
+                                <label for="paramFinancialIndicators">Financial indicators</label>
+                                <input type="number" id="paramFinancialIndicators" min="5" max="40" step="1" placeholder="25">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="config-group">
+                        <h3>Markets</h3>
+                        <div class="config-market-list" id="configMarketList">
+                            <div class="config-empty">Loading markets…</div>
+                        </div>
+                    </div>
+                    <div class="config-actions">
+                        <span class="config-status" id="configStatus"></span>
+                        <div class="config-buttons">
+                            <button type="button" class="ghost-button" id="configResetBtn">Reset</button>
+                            <button type="submit" class="primary-button" id="configSaveBtn">💾 Save settings</button>
+                        </div>
+                    </div>
+                </form>
+            </details>
+            <label for="singleSymbol">Ticker symbol</label>
+            <div class="input-row">
+                <input id="singleSymbol" type="text" placeholder="e.g. AAPL" autocomplete="off">
+                <button id="analyzeBtn" type="button" class="primary-button">🚀 Stream analysis</button>
+            </div>
                 <div class="hint">Use standard U.S. ticker symbols (1–7 characters).</div>
                 <div class="divider"></div>
                 <label for="batchSymbols">Batch queue (comma separated)</label>
@@ -1073,6 +1356,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
     var activeChatReplies = {};
     var chatAvailable = false;
     var MAX_CHAT_HISTORY = 12;
+    var configCache = null;
 
     function generateClientId() {
         try {
@@ -1103,6 +1387,256 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             // ignore and fall back
         }
         return 'client-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1e9);
+    }
+
+    function setConfigStatus(message, tone) {
+        var status = document.getElementById('configStatus');
+        if (!status) {
+            return;
+        }
+        status.textContent = message || '';
+        status.className = 'config-status' + (tone ? ' ' + tone : '');
+    }
+
+    function populateConfigForm(config) {
+        configCache = config || {};
+        var ai = (configCache.ai) || {};
+        var models = ai.models || {};
+
+        var providerSelect = document.getElementById('configProvider');
+        if (providerSelect) {
+            providerSelect.value = ai.model_preference || 'openai';
+        }
+
+        var openaiInput = document.getElementById('configModelOpenAI');
+        if (openaiInput) {
+            openaiInput.value = models.openai || '';
+        }
+        var anthropicInput = document.getElementById('configModelAnthropic');
+        if (anthropicInput) {
+            anthropicInput.value = models.anthropic || '';
+        }
+        var zhipuInput = document.getElementById('configModelZhipu');
+        if (zhipuInput) {
+            zhipuInput.value = models.zhipu || '';
+        }
+
+        var weights = configCache.analysis_weights || {};
+        var tech = document.getElementById('weightTechnical');
+        if (tech) {
+            tech.value = (typeof weights.technical === 'number' && !isNaN(weights.technical)) ? Math.round(weights.technical * 100) : '';
+        }
+        var fundamental = document.getElementById('weightFundamental');
+        if (fundamental) {
+            fundamental.value = (typeof weights.fundamental === 'number' && !isNaN(weights.fundamental)) ? Math.round(weights.fundamental * 100) : '';
+        }
+        var sentiment = document.getElementById('weightSentiment');
+        if (sentiment) {
+            sentiment.value = (typeof weights.sentiment === 'number' && !isNaN(weights.sentiment)) ? Math.round(weights.sentiment * 100) : '';
+        }
+
+        var params = configCache.analysis_params || {};
+        var technicalWindow = document.getElementById('paramTechnicalWindow');
+        if (technicalWindow) {
+            technicalWindow.value = params.technical_period_days || '';
+        }
+        var newsLimit = document.getElementById('paramNewsLimit');
+        if (newsLimit) {
+            newsLimit.value = params.max_news_count || '';
+        }
+        var indicatorCount = document.getElementById('paramFinancialIndicators');
+        if (indicatorCount) {
+            indicatorCount.value = params.financial_indicators_count || '';
+        }
+
+        var marketList = document.getElementById('configMarketList');
+        if (marketList) {
+            marketList.innerHTML = '';
+            var markets = configCache.markets || {};
+            var keys = Object.keys(markets);
+            if (!keys.length) {
+                var empty = document.createElement('div');
+                empty.className = 'config-empty';
+                empty.textContent = 'No markets configured.';
+                marketList.appendChild(empty);
+            } else {
+                keys.sort();
+                keys.forEach(function (code) {
+                    var meta = markets[code] || {};
+                    var wrapper = document.createElement('label');
+                    wrapper.className = 'config-market';
+
+                    var checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = 'market-' + code;
+                    checkbox.dataset.market = code;
+                    checkbox.dataset.currency = meta.currency || '';
+                    checkbox.dataset.timezone = meta.timezone || '';
+                    checkbox.dataset.tradingHours = meta.trading_hours || '';
+                    checkbox.checked = !!meta.enabled;
+                    wrapper.appendChild(checkbox);
+
+                    var info = document.createElement('div');
+                    info.className = 'config-market-info';
+                    var strong = document.createElement('strong');
+                    strong.textContent = meta.name || code;
+                    info.appendChild(strong);
+                    var details = [];
+                    if (meta.currency) { details.push(meta.currency); }
+                    if (meta.timezone) { details.push(meta.timezone); }
+                    if (meta.trading_hours) { details.push(meta.trading_hours); }
+                    if (details.length) {
+                        var span = document.createElement('span');
+                        span.textContent = details.join(' · ');
+                        info.appendChild(span);
+                    }
+                    wrapper.appendChild(info);
+                    marketList.appendChild(wrapper);
+                });
+            }
+        }
+    }
+
+    function extractConfigPayload() {
+        var payload = { ai: { models: {} }, analysis_weights: {}, analysis_params: {}, markets: {} };
+
+        var providerSelect = document.getElementById('configProvider');
+        if (providerSelect) {
+            payload.ai.model_preference = providerSelect.value || 'openai';
+        }
+
+        var openaiInput = document.getElementById('configModelOpenAI');
+        if (openaiInput) {
+            payload.ai.models.openai = trim(String(openaiInput.value || ''));
+        }
+        var anthropicInput = document.getElementById('configModelAnthropic');
+        if (anthropicInput) {
+            payload.ai.models.anthropic = trim(String(anthropicInput.value || ''));
+        }
+        var zhipuInput = document.getElementById('configModelZhipu');
+        if (zhipuInput) {
+            payload.ai.models.zhipu = trim(String(zhipuInput.value || ''));
+        }
+
+        var tech = document.getElementById('weightTechnical');
+        if (tech && tech.value !== '') {
+            var techVal = parseFloat(tech.value);
+            if (!isNaN(techVal)) {
+                payload.analysis_weights.technical = techVal / 100;
+            }
+        }
+        var fund = document.getElementById('weightFundamental');
+        if (fund && fund.value !== '') {
+            var fundVal = parseFloat(fund.value);
+            if (!isNaN(fundVal)) {
+                payload.analysis_weights.fundamental = fundVal / 100;
+            }
+        }
+        var sent = document.getElementById('weightSentiment');
+        if (sent && sent.value !== '') {
+            var sentVal = parseFloat(sent.value);
+            if (!isNaN(sentVal)) {
+                payload.analysis_weights.sentiment = sentVal / 100;
+            }
+        }
+
+        var technicalWindow = document.getElementById('paramTechnicalWindow');
+        if (technicalWindow && technicalWindow.value !== '') {
+            var daysVal = parseInt(technicalWindow.value, 10);
+            if (!isNaN(daysVal)) {
+                payload.analysis_params.technical_period_days = daysVal;
+            }
+        }
+        var newsLimit = document.getElementById('paramNewsLimit');
+        if (newsLimit && newsLimit.value !== '') {
+            var newsVal = parseInt(newsLimit.value, 10);
+            if (!isNaN(newsVal)) {
+                payload.analysis_params.max_news_count = newsVal;
+            }
+        }
+        var indicatorCount = document.getElementById('paramFinancialIndicators');
+        if (indicatorCount && indicatorCount.value !== '') {
+            var indVal = parseInt(indicatorCount.value, 10);
+            if (!isNaN(indVal)) {
+                payload.analysis_params.financial_indicators_count = indVal;
+            }
+        }
+
+        var baseMarkets = (configCache && configCache.markets) || {};
+        Object.keys(baseMarkets).forEach(function (code) {
+            var checkbox = document.getElementById('market-' + code);
+            var meta = baseMarkets[code] || {};
+            payload.markets[code] = {
+                enabled: checkbox ? checkbox.checked : !!meta.enabled,
+                name: meta.name || code,
+                currency: meta.currency || (checkbox ? checkbox.dataset.currency || '' : ''),
+                timezone: meta.timezone || (checkbox ? checkbox.dataset.timezone || '' : ''),
+                trading_hours: meta.trading_hours || (checkbox ? checkbox.dataset.tradingHours || '' : ''),
+            };
+        });
+
+        return payload;
+    }
+
+    function loadConfigSettings() {
+        setConfigStatus('Loading settings…', 'pending');
+        sendJsonRequest('/api/config', null, 'GET').then(function (result) {
+            var data = result.data || {};
+            if (!result.ok || !data.success) {
+                setConfigStatus(data.error || 'Unable to load configuration.', 'error');
+                return;
+            }
+            populateConfigForm(data.config || {});
+            setConfigStatus('Settings loaded', 'info');
+        }).catch(function (error) {
+            setConfigStatus('Load failed: ' + error, 'error');
+        });
+    }
+
+    function saveConfigSettings(event) {
+        if (event && event.preventDefault) {
+            event.preventDefault();
+        }
+        setConfigStatus('Saving…', 'pending');
+        var payload = extractConfigPayload();
+        sendJsonRequest('/api/config', payload, 'POST').then(function (result) {
+            var data = result.data || {};
+            if (!result.ok || !data.success) {
+                setConfigStatus(data.error || 'Unable to save settings.', 'error');
+                return;
+            }
+            populateConfigForm(data.config || {});
+            setConfigStatus('Settings saved', 'success');
+        }).catch(function (error) {
+            setConfigStatus('Save failed: ' + error, 'error');
+        });
+    }
+
+    function resetConfigForm(event) {
+        if (event && event.preventDefault) {
+            event.preventDefault();
+        }
+        populateConfigForm(configCache || {});
+        setConfigStatus('Settings reset', 'info');
+    }
+
+    function bindConfigControls() {
+        var form = document.getElementById('configForm');
+        if (form && form.addEventListener) {
+            form.addEventListener('submit', saveConfigSettings);
+        }
+        var resetBtn = document.getElementById('configResetBtn');
+        if (resetBtn && resetBtn.addEventListener) {
+            resetBtn.addEventListener('click', resetConfigForm);
+        }
+        var details = document.getElementById('configDetails');
+        if (details && details.addEventListener) {
+            details.addEventListener('toggle', function () {
+                if (details.open && !configCache) {
+                    loadConfigSettings();
+                }
+            });
+        }
     }
 
     function isWhitespace(character) {
@@ -1642,25 +2176,36 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         setStatus('Ready');
     }
 
-    function sendJsonRequest(url, payload) {
-        var body = JSON.stringify(payload || {});
+    function sendJsonRequest(url, payload, method) {
+        var verb = (method || 'POST').toUpperCase();
+        var hasBody = !(verb === 'GET' || verb === 'HEAD');
+        var body = hasBody ? JSON.stringify(payload || {}) : null;
+
         if (typeof window !== 'undefined' && window.fetch) {
-            return window.fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: body
-            }).then(function (response) {
-                return response.json().catch(function () { return {}; }).then(function (data) {
-                    return { ok: response.ok, status: response.status, data: data };
-                });
+            var options = {
+                method: verb,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (hasBody) {
+                options.body = body;
+            }
+            return window.fetch(url, options).then(function (response) {
+                return response
+                    .json()
+                    .catch(function () { return {}; })
+                    .then(function (data) {
+                        return { ok: response.ok, status: response.status, data: data };
+                    });
             });
         }
 
         return new Promise(function (resolve, reject) {
             try {
                 var xhr = new XMLHttpRequest();
-                xhr.open('POST', url, true);
-                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.open(verb, url, true);
+                if (hasBody) {
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                }
                 xhr.onreadystatechange = function () {
                     if (xhr.readyState === 4) {
                         var data = {};
@@ -1676,7 +2221,11 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                 xhr.onerror = function () {
                     reject(new Error('Network request failed'));
                 };
-                xhr.send(body);
+                if (hasBody && body !== null) {
+                    xhr.send(body);
+                } else {
+                    xhr.send();
+                }
             } catch (error) {
                 reject(error);
             }
@@ -1945,12 +2494,14 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         if (chatClear && chatClear.addEventListener) {
             chatClear.addEventListener('click', handleChatClear);
         }
+        bindConfigControls();
     }
 
     function initialiseDashboard() {
         bindControls();
         setSessionId();
         resetChat(false);
+        loadConfigSettings();
         var streamingActive = connectSSE();
         if (!streamingActive) {
             addLog('Live streaming is unavailable in this browser. Requests will still run, but updates will appear after completion.', 'warning');
@@ -2296,6 +2847,24 @@ def system_info():
         "streaming": analyzer.streaming_config if analyzer else {},
         "analysis_weights": analyzer.analysis_weights if analyzer else {},
     })
+
+
+@app.route("/api/config", methods=["GET", "POST"])
+@require_auth
+def configure():
+    if not analyzer:
+        return jsonify({"success": False, "error": "Analyzer not initialised"}), 500
+
+    if request.method == "GET":
+        return jsonify({"success": True, "config": analyzer.get_editable_config()})
+
+    payload = request.get_json(force=True) or {}
+    try:
+        with config_lock:
+            updated = analyzer.update_runtime_config(payload)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    return jsonify({"success": True, "config": updated})
 
 
 @app.route("/api/validate_stock", methods=["POST"])
