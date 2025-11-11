@@ -591,6 +591,118 @@ class EnhancedWebStockAnalyzer:
     # ------------------------------------------------------------------
     # Fundamentals
     # ------------------------------------------------------------------
+    def _fetch_yfinance_fundamentals(
+        self, stock_code: str
+    ) -> Tuple[Dict[str, float], str, List[str]]:
+        """Return fundamental metrics sourced from yfinance where possible."""
+
+        fundamentals: Dict[str, float] = {}
+        provider_warnings: List[str] = []
+        source_name = ""
+
+        if yf is None:
+            provider_warnings.append("yfinance package is not installed.")
+            return fundamentals, source_name, provider_warnings
+
+        try:  # pragma: no cover - network dependent
+            ticker = yf.Ticker(stock_code)
+        except Exception as exc:
+            provider_warnings.append(f"yfinance ticker initialisation failed: {exc}")
+            logger.warning("Unable to initialise yfinance ticker for %s: %s", stock_code, exc)
+            return fundamentals, source_name, provider_warnings
+
+        info_sources: List[Tuple[Dict[str, Any], str]] = []
+
+        # ``get_info`` remains the richest dataset but may raise for some tickers.
+        try:  # pragma: no cover - network dependent
+            raw_info = ticker.get_info() or {}
+            if raw_info:
+                info_sources.append((raw_info, "get_info"))
+        except Exception as exc:
+            provider_warnings.append(f"yfinance get_info unavailable: {exc}")
+
+        # ``fast_info`` provides lightweight metrics without the legacy endpoint.
+        fast_info = getattr(ticker, "fast_info", None)
+        if fast_info:
+            if isinstance(fast_info, dict):
+                info_sources.append((fast_info, "fast_info"))
+            else:
+                info_sources.append((fast_info.__dict__, "fast_info"))
+
+        mapping = {
+            "trailingPE": "pe_ratio",
+            "forwardPE": "forward_pe",
+            "trailing_pe": "pe_ratio",
+            "forward_pe": "forward_pe",
+            "trailingEps": "eps",
+            "forwardEps": "forward_eps",
+            "returnOnEquity": "roe",
+            "revenueGrowth": "revenue_growth",
+            "earningsGrowth": "net_profit_growth",
+            "earningsQuarterlyGrowth": "net_profit_growth_quarterly",
+            "profitMargins": "net_margin",
+            "grossMargins": "gross_margin",
+            "operatingMargins": "operating_margin",
+            "debtToEquity": "debt_to_equity",
+            "currentRatio": "current_ratio",
+        }
+
+        for source_dict, source_label in info_sources:
+            for source_key, target_key in mapping.items():
+                if target_key in fundamentals:
+                    continue
+                value = source_dict.get(source_key)
+                if value is None:
+                    continue
+                try:
+                    numeric_value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if source_key in {
+                    "returnOnEquity",
+                    "revenueGrowth",
+                    "earningsGrowth",
+                    "earningsQuarterlyGrowth",
+                    "profitMargins",
+                    "grossMargins",
+                    "operatingMargins",
+                }:
+                    numeric_value *= 100.0
+                fundamentals[target_key] = numeric_value
+                source_name = "yfinance"
+
+        # Attempt to derive additional ratios from financial statements if basic info failed.
+        if not fundamentals:
+            try:  # pragma: no cover - network dependent
+                financials = None
+                getter = getattr(ticker, "get_financials", None)
+                if callable(getter):
+                    financials = getter()
+                elif hasattr(ticker, "financials"):
+                    financials = ticker.financials
+
+                if isinstance(financials, pd.DataFrame) and not financials.empty:
+                    revenue = financials.get("Total Revenue")
+                    net_income = financials.get("Net Income")
+                    if revenue is not None and not revenue.empty:
+                        revenue_value = float(revenue.iloc[0])
+                        fundamentals["revenue"] = revenue_value
+                    if net_income is not None and not net_income.empty:
+                        net_income_value = float(net_income.iloc[0])
+                        fundamentals["net_income"] = net_income_value
+                        if fundamentals.get("revenue"):
+                            fundamentals["net_margin"] = (
+                                net_income_value / fundamentals["revenue"] * 100.0
+                                if fundamentals["revenue"]
+                                else None
+                            ) or fundamentals.get("net_margin")
+                    if fundamentals:
+                        source_name = "yfinance-financials"
+            except Exception as exc:
+                provider_warnings.append(f"yfinance financial statement fetch failed: {exc}")
+
+        return fundamentals, source_name, provider_warnings
+
     def get_comprehensive_fundamental_data(self, stock_code: str) -> Dict:
         """Fetch or synthesise fundamental metrics."""
 
@@ -600,57 +712,58 @@ class EnhancedWebStockAnalyzer:
             return cache_entry[1]
 
         fundamentals: Dict[str, float] = {}
-
         source_name = ""
+        provider_warnings: List[str] = []
 
         if yf is not None:
-            try:  # pragma: no cover - network dependent
-                ticker = yf.Ticker(stock_code)
-                info = ticker.get_info()
-                mapping = {
-                    "trailingPE": "pe_ratio",
-                    "forwardPE": "forward_pe",
-                    "trailingEps": "eps",
-                    "forwardEps": "forward_eps",
-                    "returnOnEquity": "roe",
-                    "revenueGrowth": "revenue_growth",
-                    "earningsGrowth": "net_profit_growth",
-                    "earningsQuarterlyGrowth": "net_profit_growth_quarterly",
-                }
-                for source_key, target_key in mapping.items():
-                    value = info.get(source_key)
-                    if value is None:
-                        continue
-                    try:
-                        value = float(value)
-                    except (TypeError, ValueError):
-                        continue
-                    if source_key in {"returnOnEquity", "revenueGrowth", "earningsGrowth", "earningsQuarterlyGrowth"}:
-                        value *= 100.0
-                    fundamentals[target_key] = value
-                if fundamentals:
-                    source_name = "yfinance"
-            except Exception as exc:
-                logger.warning("Unable to fetch yfinance fundamentals for %s: %s", stock_code, exc)
+            fetched, source_name, yf_warnings = self._fetch_yfinance_fundamentals(stock_code)
+            fundamentals.update(fetched)
+            provider_warnings.extend(yf_warnings)
 
         if not fundamentals and ak is not None:
             try:  # pragma: no cover - network dependent
                 info = ak.stock_us_fundamental(stock=stock_code)
-                if not info.empty:
+                if info is not None and not info.empty:
                     info = info.set_index("item")
                     for source_key, target_key in AK_FUNDAMENTAL_KEYS.items():
                         if source_key in info.index:
-                            fundamentals[target_key] = float(info.loc[source_key, "value"])
+                            try:
+                                fundamentals[target_key] = float(info.loc[source_key, "value"])
+                            except (TypeError, ValueError):
+                                provider_warnings.append(
+                                    f"Unable to parse {source_key} from akshare response."
+                                )
                     if fundamentals and not source_name:
                         source_name = "akshare"
+                else:
+                    provider_warnings.append("akshare returned no rows for this ticker.")
             except Exception as exc:
+                provider_warnings.append(f"akshare fundamental fetch failed: {exc}")
                 logger.warning("Unable to fetch fundamentals for %s via akshare: %s", stock_code, exc)
+
+        if fundamentals:
+            logger.info(
+                "Loaded %s fundamental metrics for %s using %s",
+                len(fundamentals),
+                stock_code,
+                source_name or "unknown provider",
+            )
+        else:
+            provider_warnings.append(
+                "No fundamental metrics were retrieved; check data providers or ticker symbol."
+            )
+            logger.warning(
+                "Fundamental fetch returned 0 metrics for %s (providers tried: %s)",
+                stock_code,
+                ", ".join(["yfinance", "akshare"]),
+            )
 
         data = {
             "financial_indicators": fundamentals,
             "metadata": {
                 "source": source_name or "placeholder",
                 "retrieved_at": datetime.now().isoformat(),
+                "warnings": provider_warnings,
             },
         }
 
@@ -1018,19 +1131,25 @@ class EnhancedWebStockAnalyzer:
         total_items = sum(len(items) for items in news_data.values())
         sentiment_score = 0.0
         confidence = 0.0
+        sentiment_trend = "insufficient-data"
+
         if total_items:
-            sentiment_score = 0.0
+            sentiment_trend = "neutral"
             confidence = 0.5
 
         return {
             "overall_sentiment": sentiment_score,
             "confidence_score": confidence,
-            "sentiment_trend": "neutral",
+            "sentiment_trend": sentiment_trend,
             "total_analyzed": total_items,
         }
 
-    def calculate_sentiment_score(self, sentiment_analysis: Dict) -> float:
+    def calculate_sentiment_score(self, sentiment_analysis: Dict) -> Optional[float]:
         """Map sentiment statistics to a 0-100 score."""
+
+        total_items = sentiment_analysis.get("total_analyzed", 0)
+        if not total_items:
+            return None
 
         base = 50.0 + sentiment_analysis.get("overall_sentiment", 0.0) * 50.0
         confidence = sentiment_analysis.get("confidence_score", 0.0)
@@ -1040,19 +1159,30 @@ class EnhancedWebStockAnalyzer:
     # ------------------------------------------------------------------
     # Aggregation helpers
     # ------------------------------------------------------------------
-    def calculate_comprehensive_score(self, scores: Dict[str, float]) -> float:
+    def calculate_comprehensive_score(self, scores: Dict[str, Optional[float]]) -> float:
         """Blend technical, fundamental, and sentiment scores."""
 
         weights = self.analysis_weights
+
+        def _safe_value(value: Optional[float]) -> float:
+            if isinstance(value, (int, float)) and not math.isnan(float(value)):
+                return float(value)
+            return 0.0
+
         return sum(
-            scores.get(key, 0.0) * float(weights.get(key, 0.0))
+            _safe_value(scores.get(key)) * float(weights.get(key, 0.0))
             for key in ("technical", "fundamental", "sentiment")
         )
 
-    def generate_recommendation(self, scores: Dict[str, float], market: str) -> str:
+    def generate_recommendation(self, scores: Dict[str, Optional[float]], market: str) -> str:
         """Provide a qualitative recommendation."""
 
-        composite = scores.get("comprehensive", 50.0)
+        composite_value = scores.get("comprehensive", 50.0)
+        composite = (
+            float(composite_value)
+            if isinstance(composite_value, (int, float)) and not math.isnan(float(composite_value))
+            else 50.0
+        )
         if composite >= 80:
             return "Strong buy"
         if composite >= 65:
@@ -1077,14 +1207,28 @@ class EnhancedWebStockAnalyzer:
         scores = analysis_context.get("scores", {})
         recommendation = analysis_context.get("recommendation", "Unknown")
         analysis_date = analysis_context.get("analysis_date")
+        data_quality = analysis_context.get("data_quality", {})
+
+        quality_messages = data_quality.get("messages") or []
+        missing_sections: List[str] = []
+        if not fundamentals:
+            missing_sections.append("fundamental indicators")
+        if sentiment.get("total_analyzed", 0) == 0:
+            missing_sections.append("news & sentiment feed")
 
         def _format_dict(title: str, values: Dict) -> str:
             if not values:
                 return f"{title}: No reliable data available."
             lines = [f"{title}:"]
             for key, value in values.items():
-                if isinstance(value, float):
-                    value_str = f"{value:.4f}" if abs(value) < 1 else f"{value:.2f}"
+                if isinstance(value, (int, float)):
+                    numeric_value = float(value)
+                    if math.isnan(numeric_value):
+                        value_str = "N/A"
+                    else:
+                        value_str = f"{numeric_value:.4f}" if abs(numeric_value) < 1 else f"{numeric_value:.2f}"
+                elif value in (None, ""):
+                    value_str = "N/A"
                 else:
                     value_str = str(value)
                 lines.append(f"- {key}: {value_str}")
@@ -1097,17 +1241,45 @@ class EnhancedWebStockAnalyzer:
             "Use section headings (Overview, Financial Health, Technical View, Sentiment & News, Investment Outlook).",
             "Close with bullet-point action items for investors.",
             "Avoid fabricating data – if something is missing, call it out explicitly.",
-            "",
-            f"Ticker: {stock_name} ({stock_code})",
-            f"Snapshot date: {analysis_date or datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            "",
-            _format_dict("Price snapshot", price_info),
-            _format_dict("Scorecard (0-100 scale)", scores),
-            _format_dict("Technical indicators", technicals),
-            _format_dict("Fundamental indicators", fundamentals),
-            _format_dict("Sentiment signals", sentiment),
-            f"Model recommendation: {recommendation}",
+            "Before writing, assess the data quality notes and explain any limitations to the reader.",
         ]
+
+        if missing_sections:
+            prompt_parts.append(
+                "The following datasets are incomplete or missing: "
+                + ", ".join(missing_sections)
+                + ". Describe how this constrains the analysis."
+            )
+
+        prompt_parts.append(
+            "If the 'financial_indicators' are empty, state clearly that financial health could not be assessed due to data availability and that the recommendation relies only on technical and sentiment signals."
+        )
+
+        prompt_parts.extend(
+            [
+                "",
+                f"Ticker: {stock_name} ({stock_code})",
+                f"Snapshot date: {analysis_date or datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "",
+            ]
+        )
+
+        prompt_parts.extend(
+            [
+                _format_dict("Price snapshot", price_info),
+                _format_dict("Scorecard (0-100 scale)", scores),
+                _format_dict("Technical indicators", technicals),
+                _format_dict("Fundamental indicators", fundamentals),
+                _format_dict("Sentiment signals", sentiment),
+                f"Model recommendation: {recommendation}",
+            ]
+        )
+
+        if quality_messages:
+            quality_lines = ["Data quality notes:"]
+            for note in quality_messages:
+                quality_lines.append(f"- {note}")
+            prompt_parts.append("\n".join(quality_lines))
 
         return "\n".join(part for part in prompt_parts if part)
 
@@ -1119,6 +1291,12 @@ class EnhancedWebStockAnalyzer:
         scores = analysis_context.get("scores", {})
         price_info = analysis_context.get("price_info", {})
         recommendation = analysis_context.get("recommendation", "Hold")
+
+        def _score_text(key: str) -> str:
+            value = scores.get(key)
+            if isinstance(value, (int, float)) and not math.isnan(float(value)):
+                return f"{float(value):.1f}"
+            return "N/A"
 
         lines = [
             f"Overview\n{stock_name} ({stock_code}) currently screens as a {recommendation.lower()} idea based on the blended scoring model.",
@@ -1137,10 +1315,10 @@ class EnhancedWebStockAnalyzer:
         if scores:
             lines.append(
                 "Score breakdown\n"
-                f"Technical: {scores.get('technical', 0):.1f} · "
-                f"Fundamental: {scores.get('fundamental', 0):.1f} · "
-                f"Sentiment: {scores.get('sentiment', 0):.1f} · "
-                f"Composite: {scores.get('comprehensive', 0):.1f}"
+                f"Technical: {_score_text('technical')} · "
+                f"Fundamental: {_score_text('fundamental')} · "
+                f"Sentiment: {_score_text('sentiment')} · "
+                f"Composite: {_score_text('comprehensive')}"
             )
 
         lines.append(
@@ -1474,6 +1652,47 @@ class EnhancedWebStockAnalyzer:
 
         recommendation = self.generate_recommendation(scores, market)
 
+        fundamental_count = len(fundamental_data.get("financial_indicators", {}))
+        news_count = sentiment_analysis.get("total_analyzed", 0)
+        data_quality_messages: List[str] = []
+
+        metadata_warnings = fundamental_data.get("metadata", {}).get("warnings") or []
+        data_quality_messages.extend(metadata_warnings)
+
+        if fundamental_count == 0:
+            data_quality_messages.append(
+                "Fundamental data is unavailable; valuation metrics could not be assessed."
+            )
+        if fundamental_data.get("metadata", {}).get("source") == "placeholder":
+            data_quality_messages.append(
+                "Fundamental source is a placeholder – verify API credentials or provider availability."
+            )
+        if news_count == 0:
+            data_quality_messages.append(
+                "No recent news articles were retrieved. Sentiment score has been marked as N/A."
+            )
+        if price_info.get("current_price") is None:
+            data_quality_messages.append(
+                "Price snapshot is incomplete; confirm market data connectivity."
+            )
+
+        deduped_messages: List[str] = []
+        for message in data_quality_messages:
+            if message and message not in deduped_messages:
+                deduped_messages.append(message)
+
+        data_quality = {
+            "financial_indicators_count": fundamental_count,
+            "total_news_count": news_count,
+            "analysis_completeness": "complete"
+            if fundamental_count > 0 and news_count > 0
+            else "partial",
+            "market_coverage": "US",
+            "fundamental_source": fundamental_data.get("metadata", {}).get("source", "placeholder"),
+            "sentiment_available": news_count > 0,
+            "messages": deduped_messages,
+        }
+
         analysis_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ai_analysis = self.generate_ai_analysis(
             {
@@ -1486,6 +1705,7 @@ class EnhancedWebStockAnalyzer:
                 "sentiment_analysis": sentiment_analysis,
                 "recommendation": recommendation,
                 "analysis_date": analysis_timestamp,
+                "data_quality": data_quality,
             },
             enable_streaming,
             stream_callback,
@@ -1506,14 +1726,7 @@ class EnhancedWebStockAnalyzer:
             "analysis_weights": self.analysis_weights,
             "recommendation": recommendation,
             "ai_analysis": ai_analysis,
-            "data_quality": {
-                "financial_indicators_count": len(fundamental_data.get("financial_indicators", {})),
-                "total_news_count": sentiment_analysis.get("total_analyzed", 0),
-                "analysis_completeness": "complete"
-                if fundamental_data.get("financial_indicators")
-                else "partial",
-                "market_coverage": "US",
-            },
+            "data_quality": data_quality,
         }
 
         return report

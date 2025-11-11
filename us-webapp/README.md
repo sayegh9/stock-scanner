@@ -14,6 +14,7 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
 - 🧮 **Weighted scoring** – blend technical, fundamental, and sentiment grades into a 0–100 composite.
 - 🗂️ **Batch workflows** – submit multiple tickers and receive independent streamed results.
 - 📈 **Modern U.S. data feeds** – downloads prices and fundamentals from Yahoo Finance via `yfinance`, with automatic Stooq and akshare fallbacks.
+- 🛟 **Data quality call-outs** – the dashboard surfaces missing fundamentals, empty news feeds, or provider warnings so you immediately know when an input needs attention.
 
 ## Getting Started
 
@@ -53,7 +54,7 @@ The bundled sample (`config.sample.json`) documents every option inline. Highlig
 
 ## Data Providers
 
-- Daily OHLCV candles and key valuation metrics are sourced from [yfinance](https://github.com/ranaroussi/yfinance) to avoid China-only endpoints.
+- Daily OHLCV candles and key valuation metrics are sourced from [yfinance](https://github.com/ranaroussi/yfinance) (including `fast_info` and financial statement fallbacks) to avoid China-only endpoints.
 - If Yahoo Finance is temporarily unavailable (for example due to rate limiting), the analyzer automatically falls back to [Stooq](https://stooq.com/).
 - When `akshare` is installed the analyzer performs a final retry using the legacy akshare pathway before surfacing an error.
 - Company news is fetched from [Finnhub](https://finnhub.io/) with an automatic fallback to [NewsData.io](https://newsdata.io/) so the sentiment engine always has diverse coverage.

@@ -595,6 +595,30 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             color: #1f2937;
             min-height: 110px;
         }
+        .result-notes {
+            margin-top: 16px;
+            background: #fff7ed;
+            border: 1px solid #f97316;
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: #9a3412;
+            font-size: 13px;
+            display: none;
+        }
+        .result-notes h4 {
+            margin: 0 0 8px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .result-notes ul {
+            margin: 0;
+            padding-left: 18px;
+        }
+        .result-notes li {
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
         .ai-section { display: none; }
         .ai-section h3 {
             margin: 0 0 12px;
@@ -806,6 +830,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                     </div>
                     <div class="result-grid" id="resultHighlights"></div>
                     <div class="result-body" id="resultPanel">Waiting for results…</div>
+                    <div class="result-notes" id="resultNotes"></div>
                 </div>
                 <div class="ai-section" id="aiSection">
                     <h3>AI Deep Analysis</h3>
@@ -913,14 +938,30 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function formatScore(value) {
-        if (value === undefined || value === null || value === '') {
-            return '--';
+        if (value === undefined || value === null) {
+            return 'N/A';
         }
-        var numberValue = Number(value);
-        if (isNaN(numberValue)) {
-            return '--';
+        if (typeof value === 'number') {
+            if (isNaN(value)) {
+                return 'N/A';
+            }
+            return value.toFixed(1);
         }
-        return numberValue.toFixed(1);
+        if (typeof value === 'string') {
+            var cleaned = trim(value);
+            if (!cleaned) {
+                return 'N/A';
+            }
+            if (cleaned.toUpperCase() === 'N/A') {
+                return 'N/A';
+            }
+            var numberValue = Number(cleaned);
+            if (!isNaN(numberValue)) {
+                return numberValue.toFixed(1);
+            }
+            return cleaned;
+        }
+        return 'N/A';
     }
 
     function updateScores(scores) {
@@ -953,6 +994,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         var summaryPanel = document.getElementById('resultPanel');
         var metaPanel = document.getElementById('resultMeta');
         var highlightPanel = document.getElementById('resultHighlights');
+        var notesPanel = document.getElementById('resultNotes');
         if (!summaryPanel) {
             return;
         }
@@ -997,6 +1039,13 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             if (dataQuality.total_news_count !== undefined) {
                 highlights += buildHighlight('News items analysed', formatInteger(dataQuality.total_news_count));
             }
+            if (dataQuality.analysis_completeness) {
+                var completenessText = dataQuality.analysis_completeness === 'complete' ? 'Complete coverage' : 'Partial coverage';
+                highlights += buildHighlight('Data coverage', completenessText);
+            }
+            if (dataQuality.fundamental_source) {
+                highlights += buildHighlight('Fundamental source', dataQuality.fundamental_source);
+            }
             highlightPanel.innerHTML = highlights;
         }
 
@@ -1009,8 +1058,31 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         summaryHtml += '<p><strong>' + stockName + (stockCode ? ' (' + stockCode + ')' : '') + '</strong> · Recommendation: ' + recommendation + '</p>';
         summaryHtml += '<p><strong>Scorecard:</strong> Technical ' + technicalScore + ' · Fundamental ' + fundamentalScore + ' · Sentiment ' + sentimentScore + ' · Composite ' + compositeScore + '</p>';
         summaryHtml += '<p><strong>Analysis date:</strong> ' + (report.analysis_date || new Date().toLocaleString()) + '</p>';
+        if (dataQuality.analysis_completeness) {
+            summaryHtml += '<p><strong>Data coverage:</strong> ' + (dataQuality.analysis_completeness === 'complete' ? 'Full fundamental and sentiment inputs' : 'Partial inputs – review alerts below') + '</p>';
+        }
+        if (dataQuality.fundamental_source) {
+            summaryHtml += '<p><strong>Fundamentals source:</strong> ' + dataQuality.fundamental_source + '</p>';
+        }
 
         summaryPanel.innerHTML = summaryHtml;
+
+        if (notesPanel) {
+            var messages = dataQuality.messages || [];
+            if (messages.length) {
+                var listHtml = '<h4>Data quality alerts</h4><ul>';
+                for (var i = 0; i < messages.length; i += 1) {
+                    listHtml += '<li>' + messages[i] + '</li>';
+                }
+                listHtml += '</ul>';
+                notesPanel.innerHTML = listHtml;
+                notesPanel.style.display = 'block';
+                addLog('Data quality warnings: ' + messages.join(' | '), 'warn');
+            } else {
+                notesPanel.innerHTML = '';
+                notesPanel.style.display = 'none';
+            }
+        }
 
         var aiPanel = document.getElementById('aiStream');
         var aiSection = document.getElementById('aiSection');
