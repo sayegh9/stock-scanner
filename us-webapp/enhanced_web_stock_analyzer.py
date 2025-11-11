@@ -104,7 +104,28 @@ class EnhancedWebStockAnalyzer:
 
         self.analysis_weights = self.config.get("analysis_weights", {})
         self.analysis_params = self.config.get("analysis_params", {})
-        self.market_config: Dict[str, Dict[str, str]] = self.config.get("markets", {})
+        allowed_markets = {"us_stock"}
+        raw_markets = self.config.get("markets", {})
+        if isinstance(raw_markets, dict):
+            filtered_markets: Dict[str, Dict[str, str]] = {}
+            for code, value in raw_markets.items():
+                if code not in allowed_markets or not isinstance(value, dict):
+                    continue
+                sanitized = dict(value)
+                sanitized.setdefault("name", "U.S. equities")
+                sanitized.setdefault("currency", "USD")
+                sanitized.setdefault("timezone", "America/New_York")
+                sanitized.setdefault("trading_hours", "09:30-16:00")
+                sanitized["enabled"] = bool(sanitized.get("enabled", True))
+                filtered_markets[code] = sanitized
+        else:
+            filtered_markets = {}
+
+        if "us_stock" not in filtered_markets:
+            filtered_markets = self._default_config()["markets"]
+
+        self.market_config = filtered_markets
+        self.config["markets"] = filtered_markets
         self.streaming_config = self.config.get("streaming", {})
         self.cache_config = self.config.get("cache", {})
         self.api_keys = self.config.get("api_keys", {})
@@ -209,20 +230,6 @@ class EnhancedWebStockAnalyzer:
                     "name": "U.S. equities",
                     "currency": "USD",
                     "timezone": "America/New_York",
-                    "trading_hours": "09:30-16:00",
-                },
-                "a_stock": {
-                    "enabled": False,
-                    "name": "A-share",
-                    "currency": "CNY",
-                    "timezone": "Asia/Shanghai",
-                    "trading_hours": "09:30-15:00",
-                },
-                "hk_stock": {
-                    "enabled": False,
-                    "name": "Hong Kong",
-                    "currency": "HKD",
-                    "timezone": "Asia/Hong_Kong",
                     "trading_hours": "09:30-16:00",
                 },
             },
@@ -466,6 +473,8 @@ class EnhancedWebStockAnalyzer:
         if isinstance(markets_updates, dict):
             markets_config = self.config.setdefault("markets", {})
             for code, payload in markets_updates.items():
+                if code != "us_stock":
+                    continue
                 if not isinstance(payload, dict):
                     continue
                 target = markets_config.setdefault(code, {"name": code, "enabled": True})

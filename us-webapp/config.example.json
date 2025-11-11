@@ -43,20 +43,6 @@
         "financial_indicators_count": 25
     },
     "markets": {
-        "a_stock": {
-            "enabled": false,
-            "currency": "CNY",
-            "timezone": "Asia/Shanghai",
-            "trading_hours": "09:30-15:00",
-            "notes": "China A-share market (disabled)"
-        },
-        "hk_stock": {
-            "enabled": false,
-            "currency": "HKD",
-            "timezone": "Asia/Hong_Kong",
-            "trading_hours": "09:30-16:00",
-            "notes": "Hong Kong stock market (disabled)"
-        },
         "us_stock": {
             "enabled": true,
             "currency": "USD",

@@ -8,7 +8,7 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
 
 ### Key Features
 
-- 🇺🇸 **U.S.-first market support** – A-share and Hong Kong pipelines are disabled by default.
+- 🇺🇸 **U.S.-first market support** – The analyzer is scoped exclusively to U.S. equities and associated market hours.
 - 🌊 **Live SSE streaming** – watch technical calculations, sentiment pulls, and AI commentary arrive in real time.
 - 🎨 **Material Design 3 UI** – refreshed cards, buttons, and typography built with Material You tokens for cohesive visuals.
 - ⚙️ **Inline config drawer** – adjust AI provider, weighting, analysis windows, and enabled markets directly from the dashboard; changes persist to `config.json`.

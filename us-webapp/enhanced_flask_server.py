@@ -249,25 +249,25 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
     <style>
         :root {
             color-scheme: light;
-            --md-sys-color-primary: #1249a6;
+            --md-sys-color-primary: #0b3d91;
             --md-sys-color-on-primary: #ffffff;
-            --md-sys-color-primary-container: #dce6ff;
-            --md-sys-color-on-primary-container: #0b285c;
-            --md-sys-color-secondary: #1f365c;
+            --md-sys-color-primary-container: #d6e4ff;
+            --md-sys-color-on-primary-container: #0a2a63;
+            --md-sys-color-secondary: #1f2d4f;
             --md-sys-color-on-secondary: #ffffff;
-            --md-sys-color-secondary-container: #e3e9f5;
-            --md-sys-color-surface: #f3f6fb;
+            --md-sys-color-secondary-container: #dce3f4;
+            --md-sys-color-surface: #f4f6fb;
             --md-sys-color-surface-container-low: #ffffff;
             --md-sys-color-surface-container: #ffffff;
-            --md-sys-color-surface-container-high: #eef2f9;
-            --md-sys-color-surface-container-highest: #e5ebf6;
-            --md-sys-color-outline: #ccd4e4;
-            --md-sys-color-outline-variant: #dfe4ef;
-            --md-sys-color-on-surface: #1c2533;
-            --md-sys-color-on-surface-variant: #5b6578;
-            --md-sys-color-error: #ba1a1a;
-            --md-sys-color-success: #1f8a5b;
-            --md-sys-color-warning: #c75515;
+            --md-sys-color-surface-container-high: #eef1f7;
+            --md-sys-color-surface-container-highest: #e4e8f2;
+            --md-sys-color-outline: #d0d7e6;
+            --md-sys-color-outline-variant: #e3e7f1;
+            --md-sys-color-on-surface: #1b2533;
+            --md-sys-color-on-surface-variant: #5a6375;
+            --md-sys-color-error: #d13438;
+            --md-sys-color-success: #1b7f5c;
+            --md-sys-color-warning: #c4661f;
         }
 
         *, *::before, *::after {
@@ -289,21 +289,21 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .dashboard {
             max-width: 1280px;
             margin: 0 auto;
-            padding: 24px 20px 40px;
+            padding: 20px 18px 32px;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 16px;
         }
 
         .hero {
-            background: linear-gradient(120deg, #113366 0%, #1c4f82 100%);
-            border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.24);
+            background: linear-gradient(135deg, #0b3d91 0%, #144fa3 100%);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
             color: var(--md-sys-color-on-primary);
-            padding: 28px 32px;
+            padding: 20px 24px;
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 12px;
             box-shadow: none;
         }
 
@@ -313,35 +313,62 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
 
         .hero h1 {
             margin: 0;
-            font-size: 2.25rem;
+            font-size: 1.9rem;
             font-weight: 700;
             letter-spacing: -0.02em;
         }
 
         .hero p {
             margin: 0;
-            max-width: 640px;
-            font-size: 1rem;
-            line-height: 1.6;
-            color: rgba(255, 255, 255, 0.84);
+            max-width: 560px;
+            font-size: 0.96rem;
+            line-height: 1.5;
+            color: rgba(255, 255, 255, 0.85);
         }
 
         .hero-meta {
             display: flex;
             flex-wrap: wrap;
-            gap: 12px;
+            gap: 10px;
         }
 
-        .hero-meta .tag-chip {
+        .hero-chip {
             display: inline-flex;
             align-items: center;
             gap: 6px;
             background: rgba(255, 255, 255, 0.18);
             border-radius: 999px;
             padding: 6px 12px;
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             letter-spacing: 0.05em;
             text-transform: uppercase;
+        }
+
+        .hero-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #4fd17d;
+            display: inline-block;
+        }
+
+        .hero-content {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .hero-content > div:first-child {
+            flex: 1 1 320px;
+        }
+
+        .hero-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
         }
 
         .hero-button {
@@ -350,9 +377,9 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             align-items: center;
             gap: 8px;
             border-radius: 999px;
-            padding: 9px 16px;
-            background: rgba(255, 255, 255, 0.16);
-            border: 1px solid rgba(255, 255, 255, 0.32);
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.28);
             color: var(--md-sys-color-on-primary);
             font-weight: 600;
             letter-spacing: 0.04em;
@@ -364,27 +391,49 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             background: rgba(255, 255, 255, 0.28);
         }
 
+        .hero-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 8px 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.16);
+            min-width: 132px;
+        }
+
+        .hero-stat span {
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            opacity: 0.85;
+        }
+
+        .hero-stat strong {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
         .layout {
             display: grid;
-            grid-template-columns: 320px 1fr 320px;
-            gap: 24px;
+            grid-template-columns: 300px 1fr 320px;
+            gap: 20px;
         }
 
         .column {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 16px;
         }
 
         .card {
             background: var(--md-sys-color-surface-container);
-            border-radius: 18px;
+            border-radius: 16px;
             border: 1px solid var(--md-sys-color-outline);
             box-shadow: none;
-            padding: 20px;
+            padding: 18px;
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 16px;
         }
 
         .card-header {
@@ -402,7 +451,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .card-header p {
-            margin: 6px 0 0;
+            margin: 4px 0 0;
             color: var(--md-sys-color-on-surface-variant);
             font-size: 0.95rem;
         }
@@ -447,31 +496,41 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .status-grid {
             display: grid;
             grid-template-columns: 1fr;
-            gap: 16px;
+            gap: 12px;
         }
 
         .status-item {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             align-items: flex-start;
-            padding: 14px;
-            border-radius: 16px;
+            padding: 12px;
+            border-radius: 14px;
             background: var(--md-sys-color-surface-container-high);
             border: 1px solid var(--md-sys-color-outline);
         }
 
         .status-item.ok {
-            border-color: rgba(51, 178, 73, 0.25);
+            border-color: rgba(27, 127, 92, 0.3);
+            background: rgba(27, 127, 92, 0.08);
         }
 
         .status-item.warn {
-            border-color: rgba(255, 191, 0, 0.35);
+            border-color: rgba(196, 102, 31, 0.35);
+            background: rgba(196, 102, 31, 0.1);
+        }
+
+        .config-card {
+            padding: 0;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            gap: 0;
         }
 
         .config-panel {
             border: 1px solid var(--md-sys-color-outline-variant);
-            border-radius: 20px;
-            background: #f7f9ff;
+            border-radius: 16px;
+            background: var(--md-sys-color-surface-container-high);
             overflow: hidden;
         }
 
@@ -482,9 +541,9 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             justify-content: space-between;
             gap: 12px;
             cursor: pointer;
-            padding: 16px 18px;
+            padding: 14px 16px;
             font-weight: 600;
-            font-size: 0.95rem;
+            font-size: 0.92rem;
         }
 
         .config-panel summary::-webkit-details-marker {
@@ -516,10 +575,10 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .config-form {
-            padding: 0 18px 18px;
+            padding: 0 16px 16px;
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 16px;
         }
 
         .config-group {
@@ -620,15 +679,15 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .config-status.pending {
-            color: #1e64f2;
+            color: #0b3d91;
         }
 
         .config-status.success {
-            color: #2f7d4a;
+            color: #1b7f5c;
         }
 
         .config-status.error {
-            color: #d9482c;
+            color: #d13438;
         }
 
         .config-status.info {
@@ -784,13 +843,13 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .score-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 16px;
+            gap: 14px;
         }
 
         .score-card {
-            border-radius: 16px;
+            border-radius: 14px;
             padding: 16px;
-            background: var(--md-sys-color-surface-container-high);
+            background: var(--md-sys-color-surface-container);
             border: 1px solid var(--md-sys-color-outline);
             display: flex;
             flex-direction: column;
@@ -815,45 +874,45 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .score-card.technical {
-            border-top: 4px solid rgba(18, 73, 166, 0.55);
+            border-top: 3px solid #0b3d91;
         }
 
         .score-card.technical .value {
-            color: #1e64f2;
+            color: #0b3d91;
         }
 
         .score-card.fundamental {
-            border-top: 4px solid rgba(31, 138, 91, 0.45);
+            border-top: 3px solid #1b7f5c;
         }
 
         .score-card.fundamental .value {
-            color: #1f8a5b;
+            color: #1b7f5c;
         }
 
         .score-card.sentiment {
-            border-top: 4px solid rgba(199, 85, 21, 0.55);
+            border-top: 3px solid #c4661f;
         }
 
         .score-card.sentiment .value {
-            color: #c75515;
+            color: #c4661f;
         }
 
         .score-card.composite {
-            border-top: 4px solid rgba(91, 63, 215, 0.45);
+            border-top: 3px solid #1f2d4f;
         }
 
         .score-card.composite .value {
-            color: #5b3fd7;
+            color: #1f2d4f;
         }
 
         .result-shell {
             background: var(--md-sys-color-surface-container);
-            border-radius: 18px;
+            border-radius: 14px;
             border: 1px solid var(--md-sys-color-outline);
-            padding: 20px;
+            padding: 18px;
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 16px;
         }
 
         .result-title {
@@ -932,14 +991,14 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .meta-panel {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 16px;
+            gap: 14px;
         }
 
         .meta-card {
-            border-radius: 20px;
-            padding: 16px;
-            background: var(--md-sys-color-surface-container-high);
-            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 14px;
+            padding: 14px;
+            background: var(--md-sys-color-surface-container);
+            border: 1px solid var(--md-sys-color-outline);
         }
 
         .meta-label {
@@ -1146,88 +1205,6 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                 </div>
                 {% endif %}
             </div>
-            <details class="config-panel" id="configDetails">
-                <summary>
-                    <div class="config-summary-meta">
-                        <span>Module configuration</span>
-                        <small>AI provider, weighting, parameters, markets</small>
-                    </div>
-                    <span class="config-chevron">▾</span>
-                </summary>
-                <form id="configForm" class="config-form">
-                    <div class="config-group">
-                        <h3>AI Provider</h3>
-                        <label for="configProvider">Preferred provider</label>
-                        <select id="configProvider">
-                            <option value="openai">OpenAI</option>
-                            <option value="anthropic">Anthropic</option>
-                            <option value="zhipu">Zhipu AI</option>
-                        </select>
-                        <div class="config-field-grid">
-                            <div>
-                                <label for="configModelOpenAI">OpenAI model</label>
-                                <input type="text" id="configModelOpenAI" placeholder="e.g. gpt-4o-mini">
-                            </div>
-                            <div>
-                                <label for="configModelAnthropic">Anthropic model</label>
-                                <input type="text" id="configModelAnthropic" placeholder="e.g. claude-3-haiku">
-                            </div>
-                            <div>
-                                <label for="configModelZhipu">Zhipu model</label>
-                                <input type="text" id="configModelZhipu" placeholder="e.g. chatglm_turbo">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="config-group">
-                        <h3>Analysis weighting</h3>
-                        <div class="config-field-grid three">
-                            <div>
-                                <label for="weightTechnical">Technical (%)</label>
-                                <input type="number" id="weightTechnical" min="0" max="100" step="1" placeholder="40">
-                            </div>
-                            <div>
-                                <label for="weightFundamental">Fundamental (%)</label>
-                                <input type="number" id="weightFundamental" min="0" max="100" step="1" placeholder="40">
-                            </div>
-                            <div>
-                                <label for="weightSentiment">Sentiment (%)</label>
-                                <input type="number" id="weightSentiment" min="0" max="100" step="1" placeholder="20">
-                            </div>
-                        </div>
-                        <small class="hint">Values are normalised automatically if they do not sum to 100.</small>
-                    </div>
-                    <div class="config-group">
-                        <h3>Analysis parameters</h3>
-                        <div class="config-field-grid">
-                            <div>
-                                <label for="paramTechnicalWindow">Technical lookback (days)</label>
-                                <input type="number" id="paramTechnicalWindow" min="30" max="365" step="1" placeholder="180">
-                            </div>
-                            <div>
-                                <label for="paramNewsLimit">News limit (articles)</label>
-                                <input type="number" id="paramNewsLimit" min="10" max="200" step="5" placeholder="100">
-                            </div>
-                            <div>
-                                <label for="paramFinancialIndicators">Financial indicators</label>
-                                <input type="number" id="paramFinancialIndicators" min="5" max="40" step="1" placeholder="25">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="config-group">
-                        <h3>Markets</h3>
-                        <div class="config-market-list" id="configMarketList">
-                            <div class="config-empty">Loading markets…</div>
-                        </div>
-                    </div>
-                    <div class="config-actions">
-                        <span class="config-status" id="configStatus"></span>
-                        <div class="config-buttons">
-                            <button type="button" class="ghost-button" id="configResetBtn">Reset</button>
-                            <button type="submit" class="primary-button" id="configSaveBtn">💾 Save settings</button>
-                        </div>
-                    </div>
-                </form>
-            </details>
             <label for="singleSymbol">Ticker symbol</label>
             <div class="input-row">
                 <input id="singleSymbol" type="text" placeholder="e.g. AAPL" autocomplete="off">
@@ -1315,6 +1292,90 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             </div>
         </section>
         <section class="column chat-column">
+            <div class="card config-card">
+                <details class="config-panel" id="configDetails">
+                    <summary>
+                        <div class="config-summary-meta">
+                            <span>Module configuration</span>
+                            <small>AI provider, weights, and runtime parameters</small>
+                        </div>
+                        <span class="config-chevron">▾</span>
+                    </summary>
+                    <form id="configForm" class="config-form">
+                        <div class="config-group">
+                            <h3>AI provider</h3>
+                            <label for="configProvider">Preferred provider</label>
+                            <select id="configProvider">
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="zhipu">Zhipu AI</option>
+                            </select>
+                            <div class="config-field-grid">
+                                <div>
+                                    <label for="configModelOpenAI">OpenAI model</label>
+                                    <input type="text" id="configModelOpenAI" placeholder="e.g. gpt-4o-mini">
+                                </div>
+                                <div>
+                                    <label for="configModelAnthropic">Anthropic model</label>
+                                    <input type="text" id="configModelAnthropic" placeholder="e.g. claude-3-haiku">
+                                </div>
+                                <div>
+                                    <label for="configModelZhipu">Zhipu model</label>
+                                    <input type="text" id="configModelZhipu" placeholder="e.g. chatglm_turbo">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-group">
+                            <h3>Analysis weighting</h3>
+                            <div class="config-field-grid three">
+                                <div>
+                                    <label for="weightTechnical">Technical (%)</label>
+                                    <input type="number" id="weightTechnical" min="0" max="100" step="1" placeholder="40">
+                                </div>
+                                <div>
+                                    <label for="weightFundamental">Fundamental (%)</label>
+                                    <input type="number" id="weightFundamental" min="0" max="100" step="1" placeholder="40">
+                                </div>
+                                <div>
+                                    <label for="weightSentiment">Sentiment (%)</label>
+                                    <input type="number" id="weightSentiment" min="0" max="100" step="1" placeholder="20">
+                                </div>
+                            </div>
+                            <small class="hint">Values normalise automatically if they do not sum to 100.</small>
+                        </div>
+                        <div class="config-group">
+                            <h3>Analysis parameters</h3>
+                            <div class="config-field-grid">
+                                <div>
+                                    <label for="paramTechnicalWindow">Technical lookback (days)</label>
+                                    <input type="number" id="paramTechnicalWindow" min="30" max="365" step="1" placeholder="180">
+                                </div>
+                                <div>
+                                    <label for="paramNewsLimit">News limit (articles)</label>
+                                    <input type="number" id="paramNewsLimit" min="10" max="200" step="5" placeholder="100">
+                                </div>
+                                <div>
+                                    <label for="paramFinancialIndicators">Financial indicators</label>
+                                    <input type="number" id="paramFinancialIndicators" min="5" max="40" step="1" placeholder="25">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-group">
+                            <h3>Markets</h3>
+                            <div class="config-market-list" id="configMarketList">
+                                <div class="config-empty">Loading markets…</div>
+                            </div>
+                        </div>
+                        <div class="config-actions">
+                            <span class="config-status" id="configStatus"></span>
+                            <div class="config-buttons">
+                                <button type="button" class="ghost-button" id="configResetBtn">Reset</button>
+                                <button type="submit" class="primary-button" id="configSaveBtn">💾 Save settings</button>
+                            </div>
+                        </div>
+                    </form>
+                </details>
+            </div>
             <div class="card chat-card">
                 <div class="card-header">
                     <div>
