@@ -15,6 +15,7 @@ provider.
 
 from __future__ import annotations
 
+import copy
 import importlib
 import json
 import logging
@@ -1280,8 +1281,12 @@ class EnhancedWebStockAnalyzer:
 
         cache_entry = self._fundamental_cache.get(stock_code)
         expiry_hours = self.cache_config.get("fundamental_hours", 6)
-        if cache_entry and datetime.now() - cache_entry[0] < timedelta(hours=expiry_hours):
-            return cache_entry[1]
+        cached_timestamp: Optional[datetime] = None
+        cached_payload: Optional[Dict] = None
+        if cache_entry:
+            cached_timestamp, cached_payload = cache_entry
+            if datetime.now() - cached_timestamp < timedelta(hours=expiry_hours):
+                return copy.deepcopy(cached_payload)
 
         fundamentals: Dict[str, float] = {}
         source_name = ""
@@ -1329,6 +1334,17 @@ class EnhancedWebStockAnalyzer:
                 stock_code,
                 source_name or "unknown provider",
             )
+            data = {
+                "financial_indicators": fundamentals,
+                "metadata": {
+                    "source": source_name or "yfinance",
+                    "retrieved_at": datetime.now().isoformat(),
+                    "warnings": provider_warnings,
+                    "providers_attempted": providers_attempted,
+                },
+            }
+            self._fundamental_cache[stock_code] = (datetime.now(), copy.deepcopy(data))
+            return data
         else:
             provider_warnings.append(
                 "No fundamental metrics were retrieved; check data providers, ticker symbol, or rate limits."
@@ -1338,6 +1354,37 @@ class EnhancedWebStockAnalyzer:
                 stock_code,
                 ", ".join(providers_attempted or ["none"]),
             )
+
+        if cached_payload:
+            fallback = copy.deepcopy(cached_payload)
+            metadata = fallback.setdefault("metadata", {})
+            warnings_list = list(metadata.get("warnings") or [])
+            stale_hint = "Using cached fundamental snapshot after live providers failed."
+            warnings_list.extend(
+                warning
+                for warning in provider_warnings
+                if warning not in warnings_list and "No fundamental metrics" not in warning
+            )
+            if stale_hint not in warnings_list:
+                warnings_list.append(stale_hint)
+            metadata["warnings"] = warnings_list
+            metadata["retrieved_at"] = datetime.now().isoformat()
+            if cached_timestamp:
+                metadata["stale_source_timestamp"] = cached_timestamp.isoformat()
+            metadata["stale"] = True
+            attempted = sorted(
+                set((metadata.get("providers_attempted") or []) + providers_attempted)
+            )
+            if attempted:
+                metadata["providers_attempted"] = attempted
+            metadata["source"] = metadata.get("source") or "cached"
+            fallback["metadata"] = metadata
+            self._fundamental_cache[stock_code] = (datetime.now(), copy.deepcopy(fallback))
+            logger.info(
+                "Falling back to cached fundamentals for %s due to provider failures.",
+                stock_code,
+            )
+            return fallback
 
         resolved_source = source_name or (
             "yahoo-quote"
@@ -1355,7 +1402,7 @@ class EnhancedWebStockAnalyzer:
             },
         }
 
-        self._fundamental_cache[stock_code] = (datetime.now(), data)
+        self._fundamental_cache[stock_code] = (datetime.now(), copy.deepcopy(data))
         return data
 
     def calculate_fundamental_score(self, fundamental_data: Dict) -> float:
@@ -1391,8 +1438,12 @@ class EnhancedWebStockAnalyzer:
 
         cache_entry = self._news_cache.get(stock_code)
         expiry_hours = self.cache_config.get("news_hours", 2)
-        if cache_entry and datetime.now() - cache_entry[0] < timedelta(hours=expiry_hours):
-            return cache_entry[1]
+        cached_news_time: Optional[datetime] = None
+        cached_news_payload: Optional[Dict[str, Any]] = None
+        if cache_entry:
+            cached_news_time, cached_news_payload = cache_entry
+            if datetime.now() - cached_news_time < timedelta(hours=expiry_hours):
+                return copy.deepcopy(cached_news_payload)
 
         lookback_days = max(1, int(days))
         end_date = datetime.utcnow()
@@ -1493,13 +1544,43 @@ class EnhancedWebStockAnalyzer:
             "attempted": providers_attempted,
         }
 
-        if not any(len(items) for items in aggregated.values()):
+        article_count = sum(len(items) for items in aggregated.values())
+
+        if article_count == 0 and cached_news_payload:
+            fallback_payload = copy.deepcopy(cached_news_payload)
+            meta = fallback_payload.setdefault("metadata", {})
+            warnings = list(meta.get("warnings") or [])
+            reuse_hint = "Using cached news coverage after provider failures."
+            warnings.extend(
+                warning for warning in provider_warnings if warning not in warnings
+            )
+            if reuse_hint not in warnings:
+                warnings.append(reuse_hint)
+            meta["warnings"] = warnings
+            meta["retrieved_at"] = datetime.utcnow().isoformat()
+            if cached_news_time:
+                meta["stale_source_timestamp"] = cached_news_time.isoformat()
+            meta["stale"] = True
+            attempted_sources = sorted(
+                set((meta.get("attempted") or []) + providers_attempted)
+            )
+            if attempted_sources:
+                meta["attempted"] = attempted_sources
+            fallback_payload["metadata"] = meta
+            self._news_cache[stock_code] = (datetime.utcnow(), copy.deepcopy(fallback_payload))
+            logger.info(
+                "Falling back to cached news coverage for %s due to provider failures.",
+                stock_code,
+            )
+            return fallback_payload
+
+        if article_count == 0:
             metadata.setdefault("warnings", []).append(
                 "No news providers returned articles during this window."
             )
 
         payload = {**aggregated, "metadata": metadata}
-        self._news_cache[stock_code] = (datetime.now(), payload)
+        self._news_cache[stock_code] = (datetime.now(), copy.deepcopy(payload))
         return payload
 
     def _deduplicate_news_items(self, items: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
