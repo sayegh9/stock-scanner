@@ -629,6 +629,93 @@ class EnhancedWebStockAnalyzer:
 
         return fundamentals, warnings
 
+    def _fetch_yahoo_quote_snapshot(self, stock_code: str) -> Tuple[Dict[str, float], List[str]]:
+        """Request Yahoo's quote endpoint for quick metrics as a final fallback."""
+
+        warnings: List[str] = []
+        params = {"symbols": stock_code}
+        try:  # pragma: no cover - network dependent
+            response = self._http_get(
+                "https://query1.finance.yahoo.com/v7/finance/quote",
+                params=params,
+            )
+        except RequestException as exc:
+            warnings.append(f"Yahoo quote request failed: {exc}")
+            return {}, warnings
+
+        if response.status_code == 429:
+            warnings.append("Yahoo quote rate limit exceeded")
+            return {}, warnings
+
+        try:
+            response.raise_for_status()
+        except RequestException as exc:
+            warnings.append(f"Yahoo quote error: {exc}")
+            return {}, warnings
+
+        payload = response.json()
+        results = payload.get("quoteResponse", {}).get("result", [])
+        if not results:
+            warnings.append("Yahoo quote returned no data")
+            return {}, warnings
+
+        node = results[0]
+        fundamentals: Dict[str, float] = {}
+
+        def _pull(key: str) -> Optional[float]:
+            return self._safe_numeric(node.get(key))
+
+        price_value = _pull("regularMarketPrice") or _pull("postMarketPrice")
+        if price_value is not None:
+            fundamentals["last_price"] = price_value
+
+        eps = _pull("epsTrailingTwelveMonths")
+        if eps is not None:
+            fundamentals.setdefault("eps", eps)
+
+        pe = _pull("trailingPE")
+        if pe is not None:
+            fundamentals.setdefault("pe_ratio", pe)
+
+        forward_pe = _pull("forwardPE")
+        if forward_pe is not None:
+            fundamentals.setdefault("forward_pe", forward_pe)
+
+        roe = self._safe_numeric(node.get("returnOnEquity"))
+        if roe is not None:
+            fundamentals.setdefault("roe", roe * 100.0 if abs(roe) <= 10 else roe)
+
+        revenue_growth = self._safe_numeric(node.get("revenueGrowth"))
+        if revenue_growth is not None:
+            fundamentals.setdefault(
+                "revenue_growth",
+                revenue_growth * 100.0 if abs(revenue_growth) <= 10 else revenue_growth,
+            )
+
+        profit_margin = self._safe_numeric(node.get("profitMargins"))
+        if profit_margin is not None:
+            fundamentals.setdefault(
+                "net_margin",
+                profit_margin * 100.0 if abs(profit_margin) <= 10 else profit_margin,
+            )
+
+        operating_margin = self._safe_numeric(node.get("operatingMargins"))
+        if operating_margin is not None:
+            fundamentals.setdefault(
+                "operating_margin",
+                operating_margin * 100.0 if abs(operating_margin) <= 10 else operating_margin,
+            )
+
+        debt_to_equity = self._safe_numeric(node.get("debtToEquity"))
+        if debt_to_equity is not None:
+            fundamentals.setdefault("debt_to_equity", debt_to_equity)
+
+        current_ratio = self._safe_numeric(node.get("currentRatio"))
+        if current_ratio is not None:
+            fundamentals.setdefault("current_ratio", current_ratio)
+
+        return fundamentals, warnings
+
     def _extract_statement_value(
         self, statement: Optional[pd.DataFrame], candidates: Iterable[str]
     ) -> Optional[float]:
@@ -1167,6 +1254,13 @@ class EnhancedWebStockAnalyzer:
             if fundamentals:
                 source_name = "yahoo-quote"
 
+        if not fundamentals:
+            quote_snapshot, snapshot_warnings = self._fetch_yahoo_quote_snapshot(stock_code)
+            fundamentals.update(quote_snapshot)
+            provider_warnings.extend(snapshot_warnings)
+            if quote_snapshot:
+                source_name = "yahoo-quote"
+
         if fundamentals and not source_name:
             source_name = "yfinance"
 
@@ -1190,6 +1284,8 @@ class EnhancedWebStockAnalyzer:
             fetched, source_name, yf_warnings = self._fetch_yfinance_fundamentals(stock_code)
             fundamentals.update(fetched)
             provider_warnings.extend(yf_warnings)
+            if source_name == "yahoo-quote" and "yahoo-quote" not in providers_attempted:
+                providers_attempted.append("yahoo-quote")
         
         if not fundamentals and ak is not None and hasattr(ak, "stock_us_fundamental"):
             providers_attempted.append("akshare")
@@ -1234,10 +1330,16 @@ class EnhancedWebStockAnalyzer:
                 ", ".join(providers_attempted or ["none"]),
             )
 
+        resolved_source = source_name or (
+            "yahoo-quote"
+            if "yahoo-quote" in providers_attempted
+            else ("yfinance" if fundamentals else "unavailable")
+        )
+
         data = {
             "financial_indicators": fundamentals,
             "metadata": {
-                "source": source_name or ("yfinance" if fundamentals else "unavailable"),
+                "source": resolved_source if fundamentals else "unavailable",
                 "retrieved_at": datetime.now().isoformat(),
                 "warnings": provider_warnings,
                 "providers_attempted": providers_attempted,
@@ -1358,6 +1460,20 @@ class EnhancedWebStockAnalyzer:
         elif self.api_keys.get("newsdata") and "NewsData.io" not in providers_attempted:
             provider_warnings.append("NewsData.io API key configured but request was not attempted.")
 
+        total_loaded = sum(len(items) for items in aggregated.values())
+        if total_loaded < max_items // 2:
+            yahoo_news = self._fetch_yfinance_news(stock_code, max_items)
+            if yahoo_news:
+                if "Yahoo Finance" not in providers_attempted:
+                    providers_attempted.append("Yahoo Finance")
+                for key in aggregated:
+                    before_len = len(aggregated[key])
+                    aggregated[key].extend(yahoo_news.get(key, []))
+                    if len(aggregated[key]) > before_len and "Yahoo Finance" not in sources_used:
+                        sources_used.append("Yahoo Finance")
+            else:
+                provider_warnings.append("Yahoo Finance news feed returned no articles for this ticker.")
+
         for bucket in list(aggregated.keys()):
             aggregated[bucket] = self._deduplicate_news_items(aggregated[bucket], max_items)
 
@@ -1439,6 +1555,66 @@ class EnhancedWebStockAnalyzer:
             "tickers": tickers or [],
             "provider": provider,
         }
+
+    def _fetch_yfinance_news(self, stock_code: str, limit: int) -> Dict[str, List[dict]]:
+        """Use yfinance's public news feed as a zero-config fallback."""
+
+        if yf is None:
+            return {}
+
+        try:  # pragma: no cover - network dependent
+            ticker = yf.Ticker(stock_code)
+            news_items = getattr(ticker, "news", None) or []
+        except Exception as exc:
+            logger.debug("yfinance news fetch failed for %s: %s", stock_code, exc)
+            return {}
+
+        if not isinstance(news_items, list):
+            return {}
+
+        buckets = {
+            "company_news": [],
+            "announcements": [],
+            "research_reports": [],
+        }
+
+        for raw in news_items:
+            if not isinstance(raw, dict):
+                continue
+            title = raw.get("title") or ""
+            summary = raw.get("summary") or raw.get("content") or ""
+            url = raw.get("link") or raw.get("url") or ""
+            provider = raw.get("publisher") or raw.get("source") or "Yahoo Finance"
+            published = raw.get("providerPublishTime") or raw.get("pubDate")
+
+            published_dt: Optional[datetime] = None
+            try:
+                timestamp = pd.to_datetime(published, utc=True, errors="coerce")
+                if pd.notnull(timestamp):
+                    published_dt = timestamp.to_pydatetime()
+            except Exception:
+                published_dt = None
+
+            bucket = self._categorize_news_item(provider, raw.get("type"))
+            if bucket not in buckets:
+                bucket = "company_news"
+
+            item = self._standardize_news_item(
+                title=title,
+                summary=summary,
+                source=provider,
+                url=url,
+                published_at=published_dt,
+                tickers=raw.get("relatedTickers") or [],
+                provider="Yahoo Finance",
+            )
+            buckets[bucket].append(item)
+
+        if limit:
+            for key in list(buckets.keys()):
+                buckets[key] = buckets[key][:limit]
+
+        return buckets
 
     def _categorize_news_item(self, provider: str, category_hint: Optional[str]) -> str:
         """Map provider-specific category hints into UI buckets."""
@@ -2201,13 +2377,18 @@ class EnhancedWebStockAnalyzer:
 
         recommendation = self.generate_recommendation(scores, market)
 
-        fundamental_count = len(fundamental_data.get("financial_indicators", {}))
+        fundamental_indicators = fundamental_data.get("financial_indicators", {})
+        fundamental_count = len(fundamental_indicators)
         news_count = sentiment_analysis.get("total_analyzed", 0)
         news_sources = sentiment_analysis.get("sources") or news_metadata.get("sources") or []
         data_quality_messages: List[str] = []
 
         metadata_warnings = fundamental_data.get("metadata", {}).get("warnings") or []
         data_quality_messages.extend(metadata_warnings)
+
+        raw_fundamental_source = (
+            fundamental_data.get("metadata", {}).get("source") or ""
+        ).strip()
 
         if fundamental_count == 0:
             data_quality_messages.append(
@@ -2221,6 +2402,10 @@ class EnhancedWebStockAnalyzer:
             data_quality_messages.append(
                 "No recent news articles were retrieved. Sentiment score has been marked as N/A."
             )
+            if not (self.api_keys.get("finnhub") or self.api_keys.get("newsdata")):
+                data_quality_messages.append(
+                    "News APIs are not configured. Add Finnhub or NewsData.io keys for richer sentiment coverage."
+                )
         elif sentiment_analysis.get("analyzer") == "keyword":
             data_quality_messages.append(
                 "Sentiment scoring fell back to keyword heuristics. Install vaderSentiment for higher fidelity results."
@@ -2235,20 +2420,54 @@ class EnhancedWebStockAnalyzer:
             if message and message not in deduped_messages:
                 deduped_messages.append(message)
 
+        coverage_status = "complete"
+        if fundamental_count == 0 and news_count == 0:
+            coverage_status = "minimal"
+        elif fundamental_count == 0 or news_count == 0:
+            coverage_status = "partial"
+
+        def _format_label(value: str) -> str:
+            if not value or value in {"unavailable", "placeholder"}:
+                return "Not available"
+            return value.replace("_", " ").replace("-", " ").title()
+
+        fundamental_status = "ok" if fundamental_count > 0 else "warn"
+        fundamental_source_label = (
+            _format_label(raw_fundamental_source)
+            if fundamental_count > 0
+            else "Not available"
+        )
+
+        sentiment_engine = (sentiment_analysis.get("analyzer") or "none").lower()
+        if news_count == 0:
+            sentiment_status = "warn"
+            sentiment_label = "Not available"
+        elif sentiment_engine == "vader":
+            sentiment_status = "ok"
+            sentiment_label = "VADER sentiment"
+        elif sentiment_engine == "keyword":
+            sentiment_status = "info"
+            sentiment_label = "Keyword heuristics"
+        else:
+            sentiment_status = "info"
+            sentiment_label = _format_label(sentiment_engine)
+
         data_quality = {
             "financial_indicators_count": fundamental_count,
             "total_news_count": news_count,
-            "analysis_completeness": "complete"
-            if fundamental_count > 0 and news_count > 0
-            else "partial",
+            "analysis_completeness": coverage_status,
             "market_coverage": "US",
-            "fundamental_source": fundamental_data.get("metadata", {}).get("source", "unavailable"),
+            "fundamental_source": fundamental_source_label,
+            "fundamental_source_key": raw_fundamental_source or ("none" if fundamental_count == 0 else "unknown"),
+            "fundamental_status": fundamental_status,
             "fundamental_providers": fundamental_data.get("metadata", {}).get(
                 "providers_attempted", []
             ),
             "sentiment_available": news_count > 0,
             "news_sources": news_sources,
             "sentiment_analyzer": sentiment_analysis.get("analyzer"),
+            "sentiment_label": sentiment_label,
+            "sentiment_status": sentiment_status,
             "messages": deduped_messages,
         }
 

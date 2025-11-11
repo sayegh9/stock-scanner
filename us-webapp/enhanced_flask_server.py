@@ -247,29 +247,27 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Modern Stock Analysis System · SSE Streaming</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto+Flex:wght@400;500;600;700&display=swap');
-
         :root {
             color-scheme: light;
-            --md-sys-color-primary: #1b4ed8;
+            --md-sys-color-primary: #1249a6;
             --md-sys-color-on-primary: #ffffff;
-            --md-sys-color-primary-container: #dbe3ff;
-            --md-sys-color-on-primary-container: #001a40;
-            --md-sys-color-secondary: #4f5b7c;
+            --md-sys-color-primary-container: #dce6ff;
+            --md-sys-color-on-primary-container: #0b285c;
+            --md-sys-color-secondary: #1f365c;
             --md-sys-color-on-secondary: #ffffff;
-            --md-sys-color-secondary-container: #e1e7ff;
-            --md-sys-color-surface: #f5f7ff;
+            --md-sys-color-secondary-container: #e3e9f5;
+            --md-sys-color-surface: #f3f6fb;
             --md-sys-color-surface-container-low: #ffffff;
             --md-sys-color-surface-container: #ffffff;
-            --md-sys-color-surface-container-high: #f0f4ff;
-            --md-sys-color-surface-container-highest: #e9efff;
-            --md-sys-color-outline: #c0c8eb;
-            --md-sys-color-outline-variant: #d8def4;
-            --md-sys-color-on-surface: #101b3d;
-            --md-sys-color-on-surface-variant: #4a5877;
+            --md-sys-color-surface-container-high: #eef2f9;
+            --md-sys-color-surface-container-highest: #e5ebf6;
+            --md-sys-color-outline: #ccd4e4;
+            --md-sys-color-outline-variant: #dfe4ef;
+            --md-sys-color-on-surface: #1c2533;
+            --md-sys-color-on-surface-variant: #5b6578;
             --md-sys-color-error: #ba1a1a;
-            --md-sys-color-success: #2f7d4a;
-            --md-sys-color-warning: #b35c00;
+            --md-sys-color-success: #1f8a5b;
+            --md-sys-color-warning: #c75515;
         }
 
         *, *::before, *::after {
@@ -278,7 +276,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
 
         body {
             margin: 0;
-            font-family: 'Roboto Flex', 'Roboto', sans-serif;
+            font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
             background: var(--md-sys-color-surface);
             color: var(--md-sys-color-on-surface);
             min-height: 100vh;
@@ -289,34 +287,28 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .dashboard {
-            max-width: 1360px;
+            max-width: 1280px;
             margin: 0 auto;
-            padding: 32px 24px 48px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
-
-        .hero {
-            background: linear-gradient(115deg, #1b4ed8 0%, #3f63f5 45%, #7689ff 100%);
-            border-radius: 28px;
-            color: var(--md-sys-color-on-primary);
-            padding: 32px 36px;
+            padding: 24px 20px 40px;
             display: flex;
             flex-direction: column;
             gap: 20px;
-            box-shadow: 0 20px 48px rgba(82, 67, 170, 0.35);
-            position: relative;
-            overflow: hidden;
+        }
+
+        .hero {
+            background: linear-gradient(120deg, #113366 0%, #1c4f82 100%);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            color: var(--md-sys-color-on-primary);
+            padding: 28px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            box-shadow: none;
         }
 
         .hero::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.28), transparent 55%),
-                        radial-gradient(circle at 75% 15%, rgba(255, 255, 255, 0.22), transparent 60%);
-            pointer-events: none;
+            display: none;
         }
 
         .hero h1 {
@@ -343,12 +335,12 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .hero-meta .tag-chip {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            background: rgba(255, 255, 255, 0.16);
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.18);
             border-radius: 999px;
-            padding: 8px 14px;
-            font-size: 0.875rem;
-            letter-spacing: 0.04em;
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
             text-transform: uppercase;
         }
 
@@ -358,18 +350,17 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             align-items: center;
             gap: 8px;
             border-radius: 999px;
-            padding: 10px 18px;
-            background: rgba(255, 255, 255, 0.18);
+            padding: 9px 16px;
+            background: rgba(255, 255, 255, 0.16);
             border: 1px solid rgba(255, 255, 255, 0.32);
             color: var(--md-sys-color-on-primary);
             font-weight: 600;
             letter-spacing: 0.04em;
             text-decoration: none;
-            transition: transform 0.2s ease, background 0.2s ease;
+            transition: background 0.2s ease;
         }
 
         .hero-button:hover {
-            transform: translateY(-1px);
             background: rgba(255, 255, 255, 0.28);
         }
 
@@ -382,18 +373,18 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .column {
             display: flex;
             flex-direction: column;
-            gap: 24px;
+            gap: 20px;
         }
 
         .card {
             background: var(--md-sys-color-surface-container);
-            border-radius: 24px;
-            border: 1px solid var(--md-sys-color-outline-variant);
-            box-shadow: 0 16px 32px rgba(27, 78, 216, 0.08);
-            padding: 24px;
+            border-radius: 18px;
+            border: 1px solid var(--md-sys-color-outline);
+            box-shadow: none;
+            padding: 20px;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 18px;
         }
 
         .card-header {
@@ -461,12 +452,12 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
 
         .status-item {
             display: flex;
-            gap: 14px;
+            gap: 12px;
             align-items: flex-start;
-            padding: 16px;
-            border-radius: 20px;
+            padding: 14px;
+            border-radius: 16px;
             background: var(--md-sys-color-surface-container-high);
-            border: 1px solid var(--md-sys-color-outline-variant);
+            border: 1px solid var(--md-sys-color-outline);
         }
 
         .status-item.ok {
@@ -707,19 +698,18 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             gap: 8px;
             border: none;
             border-radius: 999px;
-            padding: 14px 20px;
+            padding: 12px 18px;
             font-weight: 600;
             letter-spacing: 0.04em;
             background: var(--md-sys-color-primary);
             color: var(--md-sys-color-on-primary);
             cursor: pointer;
-            box-shadow: 0 8px 20px rgba(103, 80, 164, 0.35);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: none;
+            transition: background 0.2s ease;
         }
 
         .primary-button:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 12px 24px rgba(103, 80, 164, 0.35);
+            background: #1b5fd4;
         }
 
         .primary-button:disabled {
@@ -733,13 +723,19 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             align-items: center;
             gap: 8px;
             border-radius: 999px;
-            border: none;
-            padding: 12px 18px;
+            border: 1px solid var(--md-sys-color-outline);
+            padding: 10px 16px;
             font-weight: 600;
-            letter-spacing: 0.04em;
-            background: var(--md-sys-color-secondary-container);
-            color: var(--md-sys-color-on-secondary-container, #1d1b20);
+            letter-spacing: 0.02em;
+            background: transparent;
+            color: var(--md-sys-color-on-surface);
             cursor: pointer;
+            transition: border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .ghost-button:hover {
+            border-color: var(--md-sys-color-primary);
+            color: var(--md-sys-color-primary);
         }
 
         .divider {
@@ -753,22 +749,22 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .status-banner {
-            background: var(--md-sys-color-surface-container-highest);
-            border-radius: 18px;
-            padding: 14px 18px;
-            border: 1px solid var(--md-sys-color-outline-variant);
+            background: var(--md-sys-color-surface-container);
+            border-radius: 14px;
+            padding: 12px 16px;
+            border: 1px solid var(--md-sys-color-outline);
             font-weight: 600;
             color: var(--md-sys-color-on-surface-variant);
         }
 
         .log-panel {
-            background: var(--md-sys-color-surface-container-high);
-            border-radius: 20px;
-            padding: 18px;
-            border: 1px solid var(--md-sys-color-outline-variant);
-            max-height: 320px;
+            background: var(--md-sys-color-surface-container);
+            border-radius: 16px;
+            padding: 16px;
+            border: 1px solid var(--md-sys-color-outline);
+            max-height: 300px;
             overflow-y: auto;
-            font-family: 'Roboto Mono', monospace;
+            font-family: 'JetBrains Mono', 'SFMono-Regular', 'Menlo', monospace;
             font-size: 0.85rem;
             line-height: 1.5;
         }
@@ -792,10 +788,10 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .score-card {
-            border-radius: 20px;
-            padding: 18px;
-            background: var(--md-sys-color-surface-container-highest);
-            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 16px;
+            padding: 16px;
+            background: var(--md-sys-color-surface-container-high);
+            border: 1px solid var(--md-sys-color-outline);
             display: flex;
             flex-direction: column;
             gap: 8px;
@@ -809,7 +805,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .score-card .value {
-            font-size: 2rem;
+            font-size: 1.8rem;
             font-weight: 700;
         }
 
@@ -819,8 +815,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .score-card.technical {
-            background: #ebf3ff;
-            border-color: #bed3ff;
+            border-top: 4px solid rgba(18, 73, 166, 0.55);
         }
 
         .score-card.technical .value {
@@ -828,26 +823,23 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .score-card.fundamental {
-            background: #edf8f1;
-            border-color: #bfe7cf;
+            border-top: 4px solid rgba(31, 138, 91, 0.45);
         }
 
         .score-card.fundamental .value {
-            color: #2f7d4a;
+            color: #1f8a5b;
         }
 
         .score-card.sentiment {
-            background: #fff0eb;
-            border-color: #ffd4c6;
+            border-top: 4px solid rgba(199, 85, 21, 0.55);
         }
 
         .score-card.sentiment .value {
-            color: #d9482c;
+            color: #c75515;
         }
 
         .score-card.composite {
-            background: #ede9ff;
-            border-color: #cbc1ff;
+            border-top: 4px solid rgba(91, 63, 215, 0.45);
         }
 
         .score-card.composite .value {
@@ -855,10 +847,10 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .result-shell {
-            background: #f6f8ff;
-            border-radius: 24px;
-            border: 1px solid var(--md-sys-color-outline-variant);
-            padding: 22px;
+            background: var(--md-sys-color-surface-container);
+            border-radius: 18px;
+            border: 1px solid var(--md-sys-color-outline);
+            padding: 20px;
             display: flex;
             flex-direction: column;
             gap: 18px;
@@ -883,22 +875,23 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
 
         .result-item {
-            border-radius: 18px;
-            padding: 16px;
-            border: 1px solid var(--md-sys-color-outline-variant);
-            background: #ffffff;
-            box-shadow: inset 4px 0 0 rgba(27, 78, 216, 0.08);
+            border-radius: 16px;
+            padding: 14px;
+            border: 1px solid var(--md-sys-color-outline);
+            background: var(--md-sys-color-surface-container);
+            box-shadow: none;
+            border-left: 4px solid var(--md-sys-color-outline-variant);
         }
 
         .result-item.warn {
-            border-color: rgba(217, 72, 44, 0.28);
-            background: #fff2ee;
-            box-shadow: inset 4px 0 0 rgba(217, 72, 44, 0.4);
+            border-color: rgba(199, 85, 21, 0.25);
+            background: #fff3ed;
+            border-left-color: rgba(199, 85, 21, 0.55);
         }
 
         .result-item.info {
-            border-color: rgba(30, 100, 242, 0.28);
-            box-shadow: inset 4px 0 0 rgba(30, 100, 242, 0.35);
+            border-color: rgba(18, 73, 166, 0.2);
+            border-left-color: rgba(18, 73, 166, 0.45);
         }
 
         .result-heading {
@@ -1996,8 +1989,8 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             if (dataQuality.financial_indicators_count !== undefined) {
                 var indicatorCount = dataQuality.financial_indicators_count;
                 var indicatorSeverity = hasNumber(indicatorCount) && indicatorCount > 0 ? '' : 'warn';
-                var indicatorText = hasNumber(indicatorCount) && indicatorCount > 0 ? formatInteger(indicatorCount) : 'None';
-                var indicatorNote = indicatorSeverity ? 'No fundamentals returned from configured providers.' : '';
+                var indicatorText = hasNumber(indicatorCount) && indicatorCount > 0 ? formatInteger(indicatorCount) : 'Not available';
+                var indicatorNote = indicatorSeverity ? 'Fundamental metrics were not returned by the active providers.' : '';
                 highlightBlocks.push(buildHighlight('Financial indicators', indicatorText, indicatorSeverity, indicatorNote));
             }
 
@@ -2016,20 +2009,31 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             }
 
             if (dataQuality.analysis_completeness) {
-                var complete = dataQuality.analysis_completeness === 'complete';
+                var coverageKey = dataQuality.analysis_completeness;
+                var coverageLabel = 'Partial coverage';
+                var coverageSeverity = '';
+                var coverageNote = '';
+                if (coverageKey === 'complete') {
+                    coverageLabel = 'Complete coverage';
+                } else if (coverageKey === 'minimal') {
+                    coverageLabel = 'Limited coverage';
+                    coverageSeverity = 'warn';
+                    coverageNote = 'Fundamental and sentiment datasets are both missing.';
+                } else {
+                    coverageSeverity = 'info';
+                    coverageNote = 'Review the alerts below to address missing inputs.';
+                }
                 highlightBlocks.push(
-                    buildHighlight(
-                        'Data coverage',
-                        complete ? 'Complete coverage' : 'Partial coverage',
-                        complete ? '' : 'warn',
-                        complete ? '' : 'Review the alerts below to address missing inputs.'
-                    )
+                    buildHighlight('Data coverage', coverageLabel, coverageSeverity, coverageNote)
                 );
             }
 
             if (dataQuality.fundamental_source) {
-                var sourceSeverity = dataQuality.fundamental_source === 'unavailable' ? 'warn' : '';
-                var sourceNote = sourceSeverity ? 'Fundamental data provider did not return values.' : '';
+                var sourceSeverity = dataQuality.fundamental_status === 'ok' ? '' : 'warn';
+                var sourceNote = '';
+                if (sourceSeverity === 'warn') {
+                    sourceNote = 'Fundamental data provider did not return values.';
+                }
                 highlightBlocks.push(
                     buildHighlight('Fundamental source', dataQuality.fundamental_source, sourceSeverity, sourceNote)
                 );
@@ -2041,13 +2045,21 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                 );
             }
 
-            if (dataQuality.sentiment_analyzer) {
-                var analyzerKey = dataQuality.sentiment_analyzer.toString().toLowerCase();
-                var analyzerSeverity = analyzerKey === 'vader' ? '' : 'warn';
-                var analyzerLabel = analyzerKey === 'vader' ? 'VADER sentiment' : (analyzerKey === 'keyword' ? 'Keyword fallback' : 'No sentiment engine');
-                var analyzerNote = analyzerSeverity ? 'Install vaderSentiment for richer tone detection.' : '';
+            if (dataQuality.sentiment_label) {
+                var sentimentSeverity = '';
+                if (dataQuality.sentiment_status === 'warn') {
+                    sentimentSeverity = 'warn';
+                } else if (dataQuality.sentiment_status === 'info') {
+                    sentimentSeverity = 'info';
+                }
+                var sentimentNote = '';
+                if (dataQuality.sentiment_status === 'warn') {
+                    sentimentNote = 'No sentiment feed is currently available.';
+                } else if (dataQuality.sentiment_status === 'info' && dataQuality.sentiment_analyzer && dataQuality.sentiment_analyzer.toString().toLowerCase() === 'keyword') {
+                    sentimentNote = 'Install vaderSentiment for richer tone detection.';
+                }
                 highlightBlocks.push(
-                    buildHighlight('Sentiment engine', analyzerLabel, analyzerSeverity, analyzerNote)
+                    buildHighlight('Sentiment engine', dataQuality.sentiment_label, sentimentSeverity, sentimentNote)
                 );
             }
 
@@ -2064,7 +2076,13 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         summaryHtml += '<p><strong>Scorecard:</strong> Technical ' + technicalScore + ' · Fundamental ' + fundamentalScore + ' · Sentiment ' + sentimentScore + ' · Composite ' + compositeScore + '</p>';
         summaryHtml += '<p><strong>Analysis date:</strong> ' + (report.analysis_date || new Date().toLocaleString()) + '</p>';
         if (dataQuality.analysis_completeness) {
-            summaryHtml += '<p><strong>Data coverage:</strong> ' + (dataQuality.analysis_completeness === 'complete' ? 'Full fundamental and sentiment inputs' : 'Partial inputs – review alerts below') + '</p>';
+            if (dataQuality.analysis_completeness === 'complete') {
+                summaryHtml += '<p><strong>Data coverage:</strong> Full fundamental and sentiment inputs</p>';
+            } else if (dataQuality.analysis_completeness === 'minimal') {
+                summaryHtml += '<p><strong>Data coverage:</strong> No fundamental or sentiment data available</p>';
+            } else {
+                summaryHtml += '<p><strong>Data coverage:</strong> Partial inputs – review alerts below</p>';
+            }
         }
         if (dataQuality.fundamental_source) {
             summaryHtml += '<p><strong>Fundamentals source:</strong> ' + dataQuality.fundamental_source + '</p>';
@@ -2075,10 +2093,8 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         if (newsSources.length) {
             summaryHtml += '<p><strong>News sources:</strong> ' + newsSources.join(', ') + '</p>';
         }
-        if (dataQuality.sentiment_analyzer) {
-            var analyzerKeySummary = dataQuality.sentiment_analyzer.toString().toLowerCase();
-            var analyzerLabelSummary = analyzerKeySummary === 'vader' ? 'VADER sentiment' : (analyzerKeySummary === 'keyword' ? 'Keyword fallback' : 'No sentiment engine');
-            summaryHtml += '<p><strong>Sentiment engine:</strong> ' + analyzerLabelSummary + '</p>';
+        if (dataQuality.sentiment_label) {
+            summaryHtml += '<p><strong>Sentiment engine:</strong> ' + dataQuality.sentiment_label + '</p>';
         }
 
         summaryPanel.innerHTML = summaryHtml;
