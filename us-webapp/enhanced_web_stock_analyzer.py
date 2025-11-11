@@ -20,6 +20,7 @@ import json
 import logging
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -1900,17 +1901,28 @@ class EnhancedWebStockAnalyzer:
         """Run a full analysis for ``stock_code``."""
 
         normalized_code, market = self.normalize_stock_code(stock_code)
-        stock_name = self.get_stock_name(normalized_code)
-        price_data = self.get_stock_data(normalized_code)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            name_future = pool.submit(self.get_stock_name, normalized_code)
+            price_future = pool.submit(self.get_stock_data, normalized_code)
+            fundamental_future = pool.submit(
+                self.get_comprehensive_fundamental_data, normalized_code
+            )
+            news_future = pool.submit(
+                self.get_comprehensive_news_data, normalized_code
+            )
+
+            stock_name = name_future.result()
+            price_data = price_future.result()
+            fundamental_data = fundamental_future.result()
+            news_data = news_future.result()
+
         price_info = self.get_price_info(price_data)
 
         technical_indicators = self.calculate_technical_indicators(price_data)
         technical_score = self.calculate_technical_score(technical_indicators)
 
-        fundamental_data = self.get_comprehensive_fundamental_data(normalized_code)
         fundamental_score = self.calculate_fundamental_score(fundamental_data)
 
-        news_data = self.get_comprehensive_news_data(normalized_code)
         sentiment_analysis = self.calculate_advanced_sentiment_analysis(news_data)
         news_metadata = news_data.get("metadata", {}) if isinstance(news_data, dict) else {}
         sentiment_score = self.calculate_sentiment_score(sentiment_analysis)
@@ -2012,6 +2024,144 @@ class EnhancedWebStockAnalyzer:
         }
 
         return report
+
+    # ------------------------------------------------------------------
+    # Conversational follow-up
+    # ------------------------------------------------------------------
+    def generate_chat_followup(
+        self,
+        report: Dict,
+        conversation: List[Dict[str, str]],
+        user_message: str,
+        enable_streaming: bool = False,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Answer follow-up questions about the latest report."""
+
+        cleaned_history = [
+            {"role": item.get("role", "user"), "content": item.get("content", "")}
+            for item in conversation
+            if item.get("content")
+        ]
+        if cleaned_history:
+            cleaned_history = cleaned_history[-6:]
+
+        if not any(self.api_keys.get(key) for key in ("openai", "anthropic", "zhipu")):
+            logger.info("No AI API keys configured; using rule-based chat response.")
+            response = self._rule_based_chat_response(report, user_message)
+            if enable_streaming and stream_callback:
+                stream_callback(response)
+            return response
+
+        prompt = self._build_chat_prompt(report, cleaned_history, user_message)
+        reply = self._call_ai_api(prompt, enable_streaming, stream_callback)
+        if reply:
+            return reply
+
+        logger.warning("Chat AI response unavailable. Falling back to rule-based reply.")
+        response = self._rule_based_chat_response(report, user_message)
+        if enable_streaming and stream_callback:
+            stream_callback(response)
+        return response
+
+    def _rule_based_chat_response(self, report: Dict, question: str) -> str:
+        """Fallback chat response using deterministic logic."""
+
+        scores = report.get("scores", {}) if isinstance(report, dict) else {}
+        rec = report.get("recommendation") if isinstance(report, dict) else None
+        price_info = report.get("price_info", {}) if isinstance(report, dict) else {}
+        data_quality = report.get("data_quality", {}) if isinstance(report, dict) else {}
+
+        summary_parts = [
+            "Automated response: live AI provider is unavailable.",
+            f"Latest recommendation: {rec or 'N/A'}.",
+            "Scores — "
+            + ", ".join(
+                f"{label.capitalize()}: {self._format_score_for_prompt(scores.get(label))}"
+                for label in ("technical", "fundamental", "sentiment", "comprehensive")
+                if label in scores
+            ),
+        ]
+
+        if price_info:
+            price_text = price_info.get("current_price")
+            change = price_info.get("price_change")
+            if price_text is not None:
+                summary_parts.append(f"Last close: {price_text:.2f} {price_info.get('currency', 'USD')}")
+            if change is not None:
+                summary_parts.append(f"Daily change: {change:+.2f}%")
+
+        messages = data_quality.get("messages") or []
+        if messages:
+            summary_parts.append("Data quality alerts: " + " | ".join(messages))
+
+        summary_parts.append(
+            "Question received: " + (question.strip() or "No question provided.")
+        )
+
+        return "\n".join(summary_parts)
+
+    def _format_score_for_prompt(self, value: Optional[float]) -> str:
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return "N/A"
+        return f"{value:.1f}"
+
+    def _build_chat_prompt(
+        self,
+        report: Dict,
+        conversation: List[Dict[str, str]],
+        user_message: str,
+    ) -> str:
+        """Compose an instruction prompt for chat follow-ups."""
+
+        stock_code = report.get("stock_code", "")
+        stock_name = report.get("stock_name", "")
+        recommendation = report.get("recommendation", "N/A")
+        price_info = report.get("price_info", {})
+        scores = report.get("scores", {})
+        technical = report.get("technical_analysis", {})
+        fundamentals = report.get("fundamental_data", {})
+        sentiment = report.get("sentiment_analysis", {})
+        data_quality = report.get("data_quality", {})
+
+        lines = [
+            "You are an expert U.S. equity analyst continuing a conversation about a stock report.",
+            "Use only the provided report data when answering questions.",
+            "Highlight any missing or low-quality data that affects the conclusion.",
+            "If financial indicators are empty, clearly state that fundamentals were unavailable and rely on technical and sentiment inputs instead.",
+        ]
+
+        lines.append(
+            "Report summary (structured JSON):\n" + json.dumps(
+                {
+                    "stock_code": stock_code,
+                    "stock_name": stock_name,
+                    "recommendation": recommendation,
+                    "price_info": price_info,
+                    "scores": scores,
+                    "technical_highlights": technical,
+                    "fundamental_data": fundamentals,
+                    "sentiment": sentiment,
+                    "data_quality": data_quality,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+
+        if conversation:
+            lines.append("Conversation so far:")
+            for turn in conversation:
+                role = turn.get("role", "user").lower()
+                content = turn.get("content", "")
+                lines.append(f"{role}: {content}")
+
+        lines.append(f"User follow-up question: {user_message}")
+        lines.append(
+            "Guidance: cite the relevant metrics from the report, address data-quality notes, and if something is missing, explicitly mention that limitation."
+        )
+
+        return "\n\n".join(lines)
 
 
 def get_stock_analyzer() -> EnhancedWebStockAnalyzer:

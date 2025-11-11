@@ -15,6 +15,8 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
 - 🗂️ **Batch workflows** – submit multiple tickers and receive independent streamed results.
 - 📈 **Modern U.S. data feeds** – downloads prices and fundamentals from Yahoo Finance via `yfinance`, with automatic Stooq and akshare fallbacks.
 - 🛟 **Data quality call-outs** – the dashboard surfaces missing fundamentals, empty news feeds, or provider warnings so you immediately know when an input needs attention.
+- 💬 **Analyst follow-up chat** – ask real-time questions about the streamed report; responses reuse the full scorecard and data-quality context.
+- ⚡ **Parallelised data pulls** – price, fundamentals, and news downloads run concurrently to minimise waiting time before scores appear.
 
 ## Getting Started
 
@@ -59,6 +61,14 @@ The bundled sample (`config.sample.json`) documents every option inline. Highlig
 - When `akshare` is installed the analyzer performs a final retry using the legacy akshare pathway before surfacing an error.
 - Company news is fetched from [Finnhub](https://finnhub.io/) with an automatic fallback to [NewsData.io](https://newsdata.io/) so the sentiment engine always has diverse coverage.
 - Sentiment scoring uses [vaderSentiment](https://github.com/cjhutto/vaderSentiment) when available and falls back to keyword heuristics if the package is missing—install it to unlock richer tone detection.
+
+## Analyst Chat Sidebar
+
+- Run a single streaming analysis to populate the dashboard.
+- The new **Analyst follow-up chat** panel (right-hand column) becomes active once a report is available.
+- Each question is answered with awareness of the latest scores, price snapshot, fundamental coverage, sentiment breakdown, and any data-quality warnings.
+- Chat responses stream token-by-token when LLM keys are configured; without keys the system provides a concise rule-based answer using the structured output.
+- Clearing the chat history keeps the current report context so you can continue the conversation without rerunning the analysis.
 
 ## Running Batch Jobs via API
 

@@ -52,10 +52,12 @@ logger = logging.getLogger(__name__)
 analyzer: Optional[EnhancedWebStockAnalyzer] = None
 analysis_tasks: Dict[str, Dict] = {}
 analysis_results: Dict[str, Dict] = {}
+client_reports: Dict[str, Dict] = {}
 analysis_lock = threading.Lock()
+client_reports_lock = threading.Lock()
 sse_clients: Dict[str, Queue] = {}
 sse_lock = threading.Lock()
-executor = ThreadPoolExecutor(max_workers=4)
+executor = ThreadPoolExecutor(max_workers=6)
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +102,43 @@ class SSEManager:
 
 
 sse_manager = SSEManager()
+
+
+def record_analysis_result(report: Dict, client_id: str, original_code: str) -> None:
+    """Persist the latest analysis for reuse in follow-up chats."""
+
+    if not report:
+        return
+
+    stock_code = report.get("stock_code") or original_code
+    if stock_code:
+        normalised = stock_code.upper()
+    else:
+        normalised = original_code.upper()
+
+    with analysis_lock:
+        analysis_results[normalised] = report
+        analysis_results[original_code.upper()] = report
+
+    if client_id:
+        with client_reports_lock:
+            client_reports[client_id] = report
+
+
+def resolve_report_for_chat(client_id: Optional[str], stock_code: Optional[str]) -> Optional[Dict]:
+    """Fetch the most relevant report for conversational follow-ups."""
+
+    candidate = None
+    if stock_code:
+        with analysis_lock:
+            candidate = analysis_results.get(stock_code.upper())
+        if candidate:
+            return candidate
+
+    if client_id:
+        with client_reports_lock:
+            candidate = client_reports.get(client_id)
+    return candidate
 
 
 def clean_data_for_json(obj):
@@ -315,11 +354,11 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             color: white;
         }
         main.layout {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: -32px auto 64px;
             padding: 0 32px;
             display: grid;
-            grid-template-columns: 360px 1fr;
+            grid-template-columns: 360px 1fr 320px;
             gap: 28px;
         }
         .column {
@@ -365,6 +404,14 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         .status-pill.live {
             background: rgba(74, 222, 128, 0.18);
             color: #047857;
+        }
+        .status-pill.pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .status-pill.disabled {
+            background: #e2e8f0;
+            color: #475569;
         }
         .status-grid {
             display: grid;
@@ -686,9 +733,102 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             font-weight: 600;
             color: #1e293b;
         }
+        .chat-card {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .chat-transcript {
+            flex: 1;
+            border-radius: 18px;
+            background: #0f172a;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            padding: 18px;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            overflow-y: auto;
+            max-height: 520px;
+        }
+        .chat-messages {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .chat-message {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .chat-message.user {
+            align-items: flex-end;
+        }
+        .chat-bubble {
+            max-width: 100%;
+            padding: 12px 16px;
+            border-radius: 16px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+        .chat-bubble.user {
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+        .chat-bubble.assistant {
+            background: rgba(148, 163, 184, 0.18);
+            color: #e2e8f0;
+            border-bottom-left-radius: 6px;
+        }
+        .chat-meta {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(226, 232, 240, 0.7);
+        }
+        .chat-placeholder {
+            text-align: center;
+            color: rgba(226, 232, 240, 0.65);
+            font-size: 13px;
+            margin: 120px 0;
+        }
+        .chat-form {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .chat-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .chat-actions .primary-button {
+            flex: 1;
+            justify-content: center;
+        }
+        .chat-actions .ghost-button {
+            flex: none;
+        }
+        .chat-disabled {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        @media (max-width: 1280px) {
+            main.layout {
+                grid-template-columns: 360px 1fr;
+            }
+            .chat-column {
+                grid-column: 1 / -1;
+            }
+        }
         @media (max-width: 1024px) {
             main.layout {
                 grid-template-columns: 1fr;
+            }
+            .chat-transcript {
+                max-height: 360px;
             }
         }
         @media (max-width: 720px) {
@@ -879,6 +1019,29 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                 </div>
             </div>
         </section>
+        <section class="column chat-column">
+            <div class="card chat-card">
+                <div class="card-header">
+                    <div>
+                        <h2>Analyst follow-up chat</h2>
+                        <p>Interactive Q&amp;A about the structured report.</p>
+                    </div>
+                    <span class="status-pill disabled" id="chatStatus">Awaiting report</span>
+                </div>
+                <div class="chat-transcript" id="chatTranscript">
+                    <div class="chat-placeholder" id="chatPlaceholder">Run a streaming analysis to unlock Q&amp;A.</div>
+                    <div class="chat-messages" id="chatMessages"></div>
+                </div>
+                <form id="chatForm" class="chat-form">
+                    <label for="chatInput">Ask a question</label>
+                    <textarea id="chatInput" placeholder="e.g. What risks should I monitor next quarter?" rows="3"></textarea>
+                    <div class="chat-actions">
+                        <button type="submit" class="primary-button chat-send" id="chatSend">💬 Send question</button>
+                        <button type="button" class="ghost-button" id="chatClear">Clear chat</button>
+                    </div>
+                </form>
+            </div>
+        </section>
     </main>
 <script>
 (function () {
@@ -887,6 +1050,10 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
     var eventSource = null;
     var currentReport = null;
     var lastHeartbeat = new Date().getTime();
+    var chatHistory = [];
+    var activeChatReplies = {};
+    var chatAvailable = false;
+    var MAX_CHAT_HISTORY = 12;
 
     function generateClientId() {
         try {
@@ -960,6 +1127,192 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         if (statusElement) {
             statusElement.textContent = text;
         }
+    }
+
+    function setChatStatus(text, mode) {
+        var pill = document.getElementById('chatStatus');
+        if (!pill) {
+            return;
+        }
+        pill.textContent = text;
+        pill.classList.remove('live', 'offline', 'pending', 'disabled');
+        if (mode) {
+            pill.classList.add(mode);
+        }
+    }
+
+    function setChatAvailability(available) {
+        chatAvailable = !!(available && currentReport);
+        var sendBtn = document.getElementById('chatSend');
+        var input = document.getElementById('chatInput');
+        var form = document.getElementById('chatForm');
+        if (sendBtn) {
+            sendBtn.disabled = !chatAvailable;
+        }
+        if (input) {
+            input.disabled = !chatAvailable;
+        }
+        if (form) {
+            if (chatAvailable) {
+                form.classList.remove('chat-disabled');
+            } else {
+                form.classList.add('chat-disabled');
+            }
+        }
+    }
+
+    function showChatPlaceholder(text) {
+        var placeholder = document.getElementById('chatPlaceholder');
+        if (!placeholder) {
+            return;
+        }
+        if (text) {
+            placeholder.textContent = text;
+            placeholder.style.display = 'block';
+        } else {
+            placeholder.textContent = '';
+            placeholder.style.display = 'none';
+        }
+    }
+
+    function hideChatPlaceholder() {
+        showChatPlaceholder('');
+    }
+
+    function scrollChatToBottom() {
+        var transcript = document.getElementById('chatTranscript');
+        if (transcript) {
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+    }
+
+    function addChatMessage(role, content, chatId) {
+        var container = document.getElementById('chatMessages');
+        if (!container) {
+            return null;
+        }
+        hideChatPlaceholder();
+        var messageWrapper = document.createElement('div');
+        messageWrapper.className = 'chat-message ' + role;
+        if (chatId) {
+            messageWrapper.dataset.chatId = chatId;
+        }
+        var meta = document.createElement('div');
+        meta.className = 'chat-meta';
+        meta.textContent = role === 'user' ? 'You' : 'Analyst AI';
+        var bubble = document.createElement('div');
+        bubble.className = 'chat-bubble ' + role;
+        bubble.textContent = content || '';
+        messageWrapper.appendChild(meta);
+        messageWrapper.appendChild(bubble);
+        container.appendChild(messageWrapper);
+        scrollChatToBottom();
+        return bubble;
+    }
+
+    function appendChatChunk(chatId, chunk) {
+        if (!chatId) {
+            return null;
+        }
+        var bubble = activeChatReplies[chatId];
+        if (!bubble || !bubble.parentNode) {
+            bubble = addChatMessage('assistant', '', chatId);
+            if (bubble) {
+                activeChatReplies[chatId] = bubble;
+            }
+        }
+        if (!bubble) {
+            return null;
+        }
+        if (chunk) {
+            bubble.textContent = (bubble.textContent || '') + chunk;
+        }
+        scrollChatToBottom();
+        return bubble;
+    }
+
+    function pushChatHistory(role, content) {
+        if (!content) {
+            return;
+        }
+        chatHistory.push({ role: role, content: content });
+        if (chatHistory.length > MAX_CHAT_HISTORY) {
+            chatHistory = chatHistory.slice(-MAX_CHAT_HISTORY);
+        }
+    }
+
+    function resetChat(keepAvailability) {
+        chatHistory = [];
+        activeChatReplies = {};
+        var container = document.getElementById('chatMessages');
+        if (container) {
+            container.innerHTML = '';
+        }
+        if (keepAvailability) {
+            hideChatPlaceholder();
+        } else {
+            showChatPlaceholder('Run a streaming analysis to unlock Q&A.');
+            setChatAvailability(false);
+            setChatStatus('Awaiting report', 'disabled');
+        }
+    }
+
+    function prepareChatForReport(report) {
+        resetChat(true);
+        var name = '';
+        if (report && report.stock_name) {
+            name = report.stock_name;
+        } else if (report && report.stock_code) {
+            name = report.stock_code;
+        }
+        showChatPlaceholder(
+            name
+                ? 'Chat ready. Ask a question about ' + name + '.'
+                : 'Chat ready. Ask a question about this ticker.'
+        );
+        setChatAvailability(true);
+        setChatStatus('Ready for questions', 'live');
+    }
+
+    function handleChatStreamEvent(data) {
+        if (!data || !data.chat_id) {
+            return;
+        }
+        appendChatChunk(data.chat_id, data.content || '');
+        setChatStatus('Streaming answer…', 'pending');
+    }
+
+    function handleChatCompleteEvent(data) {
+        if (!data || !data.chat_id) {
+            return;
+        }
+        var response = data.response || '';
+        var bubble = appendChatChunk(data.chat_id, '');
+        if (bubble && response) {
+            bubble.textContent = response;
+        } else if (bubble && !bubble.textContent) {
+            bubble.textContent = 'No additional commentary was generated.';
+        }
+        if (response) {
+            pushChatHistory('assistant', response);
+        }
+        delete activeChatReplies[data.chat_id];
+        setChatStatus('Ready for questions', 'live');
+    }
+
+    function handleChatErrorEvent(data) {
+        var error = (data && data.error) ? data.error : 'Unable to generate chat response.';
+        if (data && data.chat_id) {
+            var bubble = appendChatChunk(data.chat_id, '');
+            if (bubble) {
+                bubble.textContent = '⚠️ ' + error;
+            }
+            delete activeChatReplies[data.chat_id];
+        } else {
+            addChatMessage('assistant', '⚠️ ' + error);
+        }
+        addLog('Chat error: ' + error, 'error');
+        setChatStatus('Ready for questions', chatAvailable ? 'live' : 'disabled');
     }
 
     function formatScore(value) {
@@ -1036,13 +1389,21 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
     }
 
     function showResult(report) {
-        currentReport = report;
         var summaryPanel = document.getElementById('resultPanel');
         var metaPanel = document.getElementById('resultMeta');
         var highlightPanel = document.getElementById('resultHighlights');
         var notesPanel = document.getElementById('resultNotes');
         if (!summaryPanel) {
             return;
+        }
+
+        if (report && report.stock_code) {
+            currentReport = report;
+            prepareChatForReport(report);
+        } else {
+            currentReport = null;
+            resetChat(false);
+            showChatPlaceholder('Chat is available after running a single streaming analysis.');
         }
 
         var market = report && report.market_info ? report.market_info : {};
@@ -1232,6 +1593,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         var resultPanel = document.getElementById('resultPanel');
         var metaPanel = document.getElementById('resultMeta');
         var highlightPanel = document.getElementById('resultHighlights');
+        var notesPanel = document.getElementById('resultNotes');
         if (single) {
             single.value = '';
         }
@@ -1256,6 +1618,7 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         }
         updateScores({});
         resetAI();
+        resetChat(false);
         currentReport = null;
         setStatus('Ready');
     }
@@ -1299,6 +1662,79 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
                 reject(error);
             }
         });
+    }
+
+    function startChatRequest(message, historySnapshot) {
+        var payload = {
+            client_id: clientId,
+            message: message,
+            stock_code: currentReport && currentReport.stock_code ? currentReport.stock_code : null,
+            conversation: Array.isArray(historySnapshot) ? historySnapshot : [],
+        };
+
+        sendJsonRequest('/api/chat', payload).then(function (result) {
+            if (!result || !result.ok) {
+                var errorText = (result && result.data && result.data.error) ? result.data.error : 'Unable to start chat.';
+                addLog('Chat request rejected: ' + errorText, 'error');
+                addChatMessage('assistant', '⚠️ ' + errorText);
+                setChatStatus('Ready for questions', chatAvailable ? 'live' : 'disabled');
+                return;
+            }
+
+            var data = result.data || {};
+            if (!data.chat_id) {
+                addLog('Chat response missing identifier.', 'error');
+                addChatMessage('assistant', '⚠️ Chat session could not be created.');
+                setChatStatus('Ready for questions', chatAvailable ? 'live' : 'disabled');
+                return;
+            }
+
+            pushChatHistory('user', message);
+            var bubble = appendChatChunk(data.chat_id, '');
+            if (bubble && !bubble.textContent) {
+                bubble.textContent = '';
+            }
+        }).catch(function (error) {
+            addLog('Chat network error: ' + error, 'error');
+            addChatMessage('assistant', '⚠️ Unable to contact chat service.');
+            setChatStatus('Ready for questions', chatAvailable ? 'live' : 'disabled');
+        });
+    }
+
+    function handleChatSubmit(event) {
+        if (event && event.preventDefault) {
+            event.preventDefault();
+        }
+        if (!chatAvailable || !currentReport) {
+            addLog('Run an analysis before starting a chat.', 'warning');
+            return;
+        }
+        var input = document.getElementById('chatInput');
+        var message = input ? trim(input.value || '') : '';
+        if (!message) {
+            addLog('Please enter a chat question.', 'warning');
+            return;
+        }
+        addChatMessage('user', message);
+        if (input) {
+            input.value = '';
+        }
+        setChatStatus('Waiting for response…', 'pending');
+        startChatRequest(message, chatHistory.slice(-MAX_CHAT_HISTORY));
+    }
+
+    function handleChatClear(event) {
+        if (event && event.preventDefault) {
+            event.preventDefault();
+        }
+        if (!chatAvailable) {
+            resetChat(false);
+            return;
+        }
+        resetChat(true);
+        setChatAvailability(true);
+        showChatPlaceholder('Chat cleared. Ask another question.');
+        setChatStatus('Ready for questions', 'live');
     }
 
     function connectSSE() {
@@ -1354,6 +1790,18 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
             }
             if (type === 'ai_stream') {
                 appendAI(data.content || '');
+                return;
+            }
+            if (type === 'chat_stream') {
+                handleChatStreamEvent(data);
+                return;
+            }
+            if (type === 'chat_complete') {
+                handleChatCompleteEvent(data);
+                return;
+            }
+            if (type === 'chat_error') {
+                handleChatErrorEvent(data);
                 return;
             }
             if (type === 'analysis_complete') {
@@ -1470,11 +1918,20 @@ MAIN_TEMPLATE = r"""<!DOCTYPE html>
         if (resetBtn && resetBtn.addEventListener) {
             resetBtn.addEventListener('click', resetDashboard);
         }
+        var chatForm = document.getElementById('chatForm');
+        if (chatForm && chatForm.addEventListener) {
+            chatForm.addEventListener('submit', handleChatSubmit);
+        }
+        var chatClear = document.getElementById('chatClear');
+        if (chatClear && chatClear.addEventListener) {
+            chatClear.addEventListener('click', handleChatClear);
+        }
     }
 
     function initialiseDashboard() {
         bindControls();
         setSessionId();
+        resetChat(false);
         var streamingActive = connectSSE();
         if (!streamingActive) {
             addLog('Live streaming is unavailable in this browser. Requests will still run, but updates will appear after completion.', 'warning');
@@ -1531,6 +1988,35 @@ class StreamingAnalyzer:
         sse_manager.send(self.client_id, "error", {"error": error_message})
 
 
+class ChatStreamer:
+    """Stream chat responses back to the requesting client."""
+
+    def __init__(self, client_id: str, chat_id: str) -> None:
+        self.client_id = client_id
+        self.chat_id = chat_id
+
+    def stream(self, content: str) -> None:
+        sse_manager.send(
+            self.client_id,
+            "chat_stream",
+            {"chat_id": self.chat_id, "content": content},
+        )
+
+    def complete(self, response: str) -> None:
+        sse_manager.send(
+            self.client_id,
+            "chat_complete",
+            {"chat_id": self.chat_id, "response": response},
+        )
+
+    def error(self, error_message: str) -> None:
+        sse_manager.send(
+            self.client_id,
+            "chat_error",
+            {"chat_id": self.chat_id, "error": error_message},
+        )
+
+
 async def run_async(func, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(executor, lambda: func(*args, **kwargs))
@@ -1548,6 +2034,7 @@ def perform_streaming_analysis(stock_code: str, client_id: str) -> Dict:
         )
         streamer.scores(report.get("scores", {}))
         streamer.final_result(report)
+        record_analysis_result(report, client_id, stock_code)
         streamer.complete(f"Analysis completed for {stock_code}")
         return report
     except Exception as exc:  # pragma: no cover - runtime guard
@@ -1680,15 +2167,55 @@ def analyze_stream():
 
     def task():
         try:
-            result = perform_streaming_analysis(stock_code, client_id)
-            with analysis_lock:
-                analysis_results[stock_code] = result
+            perform_streaming_analysis(stock_code, client_id)
         finally:
             with analysis_lock:
                 analysis_tasks.pop(stock_code, None)
 
     executor.submit(task)
     return jsonify({"success": True, "task_id": task_id})
+
+
+@app.route("/api/chat", methods=["POST"])
+@require_auth
+def chat_follow_up():
+    if not analyzer:
+        return jsonify({"success": False, "error": "Analyzer not initialised"}), 500
+
+    payload = request.get_json(force=True)
+    message = (payload.get("message") or "").strip()
+    client_id = payload.get("client_id")
+    stock_code = payload.get("stock_code")
+    conversation = payload.get("conversation") or []
+
+    if not client_id:
+        return jsonify({"success": False, "error": "Missing client ID"}), 400
+    if not message:
+        return jsonify({"success": False, "error": "Question cannot be empty"}), 400
+
+    report = resolve_report_for_chat(client_id, stock_code)
+    if not report:
+        return jsonify({"success": False, "error": "Run an analysis before starting a chat."}), 400
+
+    chat_id = str(uuid.uuid4())
+    streamer = ChatStreamer(client_id, chat_id)
+
+    def task():
+        try:
+            response = analyzer.generate_chat_followup(
+                report,
+                conversation if isinstance(conversation, list) else [],
+                message,
+                enable_streaming=True,
+                stream_callback=streamer.stream,
+            )
+            streamer.complete(response)
+        except Exception as exc:  # pragma: no cover - runtime guard
+            logger.exception("Chat follow-up failed")
+            streamer.error(str(exc))
+
+    executor.submit(task)
+    return jsonify({"success": True, "chat_id": chat_id})
 
 
 @app.route("/api/batch_analyze_stream", methods=["POST"])
