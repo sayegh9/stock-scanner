@@ -26,6 +26,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import requests
+from requests import Response
+from requests.exceptions import RequestException
 
 try:  # pragma: no cover - optional dependency
     import yfinance as yf
@@ -40,6 +43,14 @@ except ImportError:  # pragma: no cover - optional dependency
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
+
+
+class NewsProviderError(Exception):
+    """Base error raised when a news provider fails."""
+
+
+class RateLimitError(NewsProviderError):
+    """Raised when a provider reports rate limiting."""
 
 AK_PRICE_COLUMNS = {
     '\u65e5\u671f': 'date',
@@ -675,21 +686,331 @@ class EnhancedWebStockAnalyzer:
     # Sentiment analysis
     # ------------------------------------------------------------------
     def get_comprehensive_news_data(self, stock_code: str, days: int = 30) -> Dict[str, List[dict]]:
-        """Return cached news data. Placeholder implementation."""
+        """Download and cache company news with Finnhub + NewsData fallbacks."""
 
         cache_entry = self._news_cache.get(stock_code)
         expiry_hours = self.cache_config.get("news_hours", 2)
         if cache_entry and datetime.now() - cache_entry[0] < timedelta(hours=expiry_hours):
             return cache_entry[1]
 
-        news_data = {
+        lookback_days = max(1, int(days))
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=lookback_days)
+        max_items = int(self.analysis_params.get("max_news_count", 100) or 100)
+
+        aggregated = {
             "company_news": [],
             "announcements": [],
             "research_reports": [],
         }
 
-        self._news_cache[stock_code] = (datetime.now(), news_data)
-        return news_data
+        sources_used: List[str] = []
+        fallback_required = False
+
+        if self.api_keys.get("finnhub"):
+            try:  # pragma: no cover - network dependent
+                finnhub_payload = self._fetch_finnhub_company_news(
+                    stock_code, start_date, end_date, max_items
+                )
+                for key, values in finnhub_payload.items():
+                    aggregated[key].extend(values)
+                if sum(len(values) for values in finnhub_payload.values()):
+                    sources_used.append("Finnhub")
+                else:
+                    fallback_required = True
+            except RateLimitError as exc:
+                fallback_required = True
+                logger.warning(
+                    "Finnhub rate limit while fetching news for %s: %s", stock_code, exc
+                )
+            except NewsProviderError as exc:
+                fallback_required = True
+                logger.warning(
+                    "Finnhub news download failed for %s: %s", stock_code, exc
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                fallback_required = True
+                logger.exception(
+                    "Unexpected Finnhub error for %s: %s", stock_code, exc
+                )
+        else:
+            fallback_required = True
+            logger.debug("Finnhub API key missing; skipping Finnhub news fetch")
+
+        should_try_newsdata = self.api_keys.get("newsdata") and (
+            fallback_required or not sum(len(values) for values in aggregated.values())
+        )
+
+        if should_try_newsdata:
+            try:  # pragma: no cover - network dependent
+                newsdata_payload = self._fetch_newsdata_company_news(
+                    stock_code, start_date, end_date, max_items
+                )
+                for key, values in newsdata_payload.items():
+                    aggregated[key].extend(values)
+                if sum(len(values) for values in newsdata_payload.values()):
+                    sources_used.append("NewsData.io")
+            except RateLimitError as exc:
+                logger.warning(
+                    "NewsData.io rate limit while fetching news for %s: %s", stock_code, exc
+                )
+            except NewsProviderError as exc:
+                logger.warning(
+                    "NewsData.io news download failed for %s: %s", stock_code, exc
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.exception(
+                    "Unexpected NewsData.io error for %s: %s", stock_code, exc
+                )
+        elif not self.api_keys.get("newsdata"):
+            logger.debug("NewsData.io API key missing; skipping NewsData.io fallback")
+
+        aggregated = {
+            key: self._deduplicate_news_items(values, max_items)
+            for key, values in aggregated.items()
+        }
+
+        total_items = sum(len(values) for values in aggregated.values())
+        if total_items:
+            logger.info(
+                "Fetched %s news articles for %s via %s",
+                total_items,
+                stock_code,
+                ", ".join(sources_used) if sources_used else "cache",
+            )
+        else:
+            logger.info(
+                "No recent news items found for %s. Providers attempted: %s",
+                stock_code,
+                ", ".join(sources_used) if sources_used else "none",
+            )
+
+        self._news_cache[stock_code] = (datetime.now(), aggregated)
+        return aggregated
+
+    def _deduplicate_news_items(
+        self, items: List[Dict[str, Any]], limit: int
+    ) -> List[Dict[str, Any]]:
+        """Remove duplicate stories and enforce the configured limit."""
+
+        if not items:
+            return []
+
+        seen: set[str] = set()
+        cleaned: List[Dict[str, Any]] = []
+        for item in sorted(
+            items,
+            key=lambda entry: entry.get("published_at") or "",
+            reverse=True,
+        ):
+            unique_key = item.get("url") or (
+                f"{item.get('title', '')}|{item.get('published_at', '')}"
+            )
+            if unique_key in seen:
+                continue
+            seen.add(unique_key)
+            cleaned.append(item)
+            if len(cleaned) >= limit:
+                break
+        return cleaned
+
+    def _standardize_news_item(
+        self,
+        *,
+        title: str,
+        summary: str,
+        source: str,
+        url: str,
+        published_at: Optional[datetime],
+        tickers: Optional[List[str]] = None,
+        provider: str = "",
+    ) -> Dict[str, Any]:
+        """Normalize disparate provider payloads into a common structure."""
+
+        published_str = ""
+        if published_at:
+            if isinstance(published_at, datetime):
+                published_str = published_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+            else:
+                published_str = str(published_at)
+
+        return {
+            "title": title or "",
+            "summary": summary or "",
+            "source": source or provider,
+            "url": url or "",
+            "published_at": published_str,
+            "tickers": tickers or [],
+            "provider": provider,
+        }
+
+    def _categorize_news_item(self, provider: str, category_hint: Optional[str]) -> str:
+        """Map provider-specific category hints into UI buckets."""
+
+        hint = (category_hint or "").lower()
+        if not hint:
+            return "company_news"
+
+        if "press" in hint or "announcement" in hint or "earnings" in hint:
+            return "announcements"
+        if "research" in hint or "analysis" in hint:
+            return "research_reports"
+
+        if provider == "newsdata" and "business" not in hint:
+            # NewsData categories are often lists joined by commas; treat non-business
+            # labels as broader company news to avoid empty buckets.
+            return "company_news"
+
+        return "company_news"
+
+    def _fetch_finnhub_company_news(
+        self,
+        stock_code: str,
+        start_date: datetime,
+        end_date: datetime,
+        limit: int,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Download company news from Finnhub."""
+
+        api_key = self.api_keys.get("finnhub")
+        if not api_key:
+            raise NewsProviderError("Finnhub API key is not configured")
+
+        params = {
+            "symbol": stock_code,
+            "from": start_date.strftime("%Y-%m-%d"),
+            "to": end_date.strftime("%Y-%m-%d"),
+            "token": api_key,
+        }
+
+        url = "https://finnhub.io/api/v1/company-news"
+        response: Response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 429:
+            raise RateLimitError("Finnhub rate limit exceeded")
+        if response.status_code >= 500:
+            raise NewsProviderError(
+                f"Finnhub server error ({response.status_code})"
+            )
+        try:
+            response.raise_for_status()
+        except RequestException as exc:
+            raise NewsProviderError(f"Finnhub request failed: {exc}") from exc
+
+        data = response.json()
+        if not isinstance(data, list):
+            raise NewsProviderError("Unexpected Finnhub response structure")
+
+        buckets = {
+            "company_news": [],
+            "announcements": [],
+            "research_reports": [],
+        }
+
+        for entry in data[: limit * 2]:  # Over-fetch to allow dedupe + categorisation
+            if not isinstance(entry, dict):
+                continue
+            title = entry.get("headline")
+            summary = entry.get("summary") or ""
+            url_value = entry.get("url") or ""
+            source = entry.get("source") or "Finnhub"
+            timestamp = entry.get("datetime")
+            published_at = None
+            if isinstance(timestamp, (int, float)) and timestamp > 0:
+                published_at = datetime.utcfromtimestamp(timestamp)
+            category = entry.get("category") or ""
+
+            bucket = self._categorize_news_item("finnhub", category)
+            buckets[bucket].append(
+                self._standardize_news_item(
+                    title=title or url_value,
+                    summary=summary,
+                    source=source,
+                    url=url_value,
+                    published_at=published_at,
+                    tickers=[stock_code],
+                    provider="Finnhub",
+                )
+            )
+
+        return buckets
+
+    def _fetch_newsdata_company_news(
+        self,
+        stock_code: str,
+        start_date: datetime,
+        end_date: datetime,
+        limit: int,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Download company news from NewsData.io."""
+
+        api_key = self.api_keys.get("newsdata")
+        if not api_key:
+            raise NewsProviderError("NewsData.io API key is not configured")
+
+        params = {
+            "apikey": api_key,
+            "q": stock_code,
+            "language": "en",
+            "category": "business",
+            "from_date": start_date.strftime("%Y-%m-%d"),
+            "to_date": end_date.strftime("%Y-%m-%d"),
+            "page": 1,
+            "pageSize": min(limit, 50),
+        }
+
+        url = "https://newsdata.io/api/1/news"
+        response: Response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 429:
+            raise RateLimitError("NewsData.io rate limit exceeded")
+        if response.status_code >= 500:
+            raise NewsProviderError(
+                f"NewsData.io server error ({response.status_code})"
+            )
+        try:
+            response.raise_for_status()
+        except RequestException as exc:
+            raise NewsProviderError(f"NewsData.io request failed: {exc}") from exc
+
+        payload = response.json()
+        if payload.get("status") not in {"success", "ok"}:
+            message = payload.get("message") or payload.get("results") or "Unknown error"
+            raise NewsProviderError(f"NewsData.io returned an error: {message}")
+
+        results = payload.get("results") or payload.get("data") or []
+        if not isinstance(results, list):
+            raise NewsProviderError("Unexpected NewsData.io response structure")
+
+        buckets = {
+            "company_news": [],
+            "announcements": [],
+            "research_reports": [],
+        }
+
+        for entry in results[: limit * 2]:
+            if not isinstance(entry, dict):
+                continue
+            title = entry.get("title")
+            summary = entry.get("description") or entry.get("content") or ""
+            url_value = entry.get("link") or entry.get("url") or ""
+            source = entry.get("source_id") or entry.get("source") or "NewsData.io"
+            published = entry.get("pubDate") or entry.get("publishedAt")
+            category_hint = entry.get("category")
+            if isinstance(category_hint, list):
+                category_hint = ",".join(category_hint)
+
+            buckets[self._categorize_news_item("newsdata", category_hint)].append(
+                self._standardize_news_item(
+                    title=title or url_value,
+                    summary=summary,
+                    source=source,
+                    url=url_value,
+                    published_at=published,
+                    tickers=[stock_code],
+                    provider="NewsData.io",
+                )
+            )
+
+        return buckets
 
     def calculate_advanced_sentiment_analysis(self, news_data: Dict[str, List[dict]]) -> Dict:
         """Generate sentiment statistics from news content."""

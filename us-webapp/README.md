@@ -28,6 +28,7 @@ The v3.1 web experience delivers a Flask + SSE front end that streams analysis u
    ```
 - Provide at least one AI provider API key under `api_keys`.
    - Without a valid AI key the dashboard falls back to a concise rule-based summary instead of the in-depth AI report.
+   - To enable real-time news and sentiment coverage, add API keys for [Finnhub](https://finnhub.io/) and optionally [NewsData.io](https://newsdata.io/). Finnhub is used first, with NewsData.io acting as an automatic fallback when rate limits or outages occur.
    - Review the `markets.us_stock` block (the only enabled market by default).
    - Enable `web_auth` and set a password if you want to gate the dashboard.
 
@@ -55,6 +56,7 @@ The bundled sample (`config.sample.json`) documents every option inline. Highlig
 - Daily OHLCV candles and key valuation metrics are sourced from [yfinance](https://github.com/ranaroussi/yfinance) to avoid China-only endpoints.
 - If Yahoo Finance is temporarily unavailable (for example due to rate limiting), the analyzer automatically falls back to [Stooq](https://stooq.com/).
 - When `akshare` is installed the analyzer performs a final retry using the legacy akshare pathway before surfacing an error.
+- Company news is fetched from [Finnhub](https://finnhub.io/) with an automatic fallback to [NewsData.io](https://newsdata.io/) so the sentiment engine always has diverse coverage.
 
 ## Running Batch Jobs via API
 

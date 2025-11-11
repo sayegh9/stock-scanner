@@ -3,7 +3,9 @@
         "openai": "sk-your-openai-api-key-here",
         "anthropic": "sk-ant-your-claude-api-key-here",
         "zhipu": "your-zhipu-api-key-here",
-        "notes": "Enter your API keys; configure at least one provider."
+        "finnhub": "your-finnhub-api-key-here",
+        "newsdata": "your-newsdata-api-key-here",
+        "notes": "Enter your API keys; configure at least one AI provider and optionally news providers."
     },
     "ai": {
         "model_preference": "openai",
