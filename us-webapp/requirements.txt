@@ -1,0 +1,36 @@
+# Core web framework
+Flask>=2.2
+Flask-Cors>=3.0
+Werkzeug>=2.2
+
+# Data processing
+pandas>=2.0
+numpy>=1.24
+python-dateutil>=2.8.2
+pytz>=2023.3
+vaderSentiment>=3.3.2
+
+# Market data
+yfinance>=0.2.40
+akshare>=1.12
+
+# Optional AI integrations
+openai>=1.0.0
+anthropic>=0.8.0
+zhipuai>=2.0.0
+
+# HTTP utilities
+requests>=2.31.0
+urllib3>=2.0
+
+# Template/runtime helpers
+Jinja2>=3.1
+MarkupSafe>=2.1
+itsdangerous>=2.1
+click>=8.1
+
+# Deployment helpers
+gunicorn>=21.2
+
+# Developer tooling
+python-dotenv>=1.0
